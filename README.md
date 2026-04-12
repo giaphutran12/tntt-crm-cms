@@ -51,7 +51,7 @@ pnpm install
 pnpm dev
 ```
 
-The public shell lives at `/`. Placeholder staff routes live at `/auth/sign-in`, `/auth/sign-up`, and `/admin`.
+The public shell lives at `/`. Staff auth lives at `/auth/sign-in` and `/auth/sign-up`, and the admin CMS shell lives at `/admin`.
 
 ## Validation commands
 
@@ -64,12 +64,13 @@ pnpm build
 
 ## Database bootstrap
 
-SQL migrations are checked in under [`supabase/migrations`](./supabase/migrations). The first migration creates:
+SQL migrations are checked in under [`supabase/migrations`](./supabase/migrations). The current migration set creates:
 
-- app-level staff roles: `ht`, `operations`, `admin`
+- app-level staff roles: `editor`, `operations`, `admin`
 - `public.app_users` linked to `auth.users`
-- a trigger that provisions every new auth account as `ht` by default
+- a trigger that provisions every new auth account as `editor` by default
 - the `public-media` and `private-registration-files` storage buckets
+- CMS tables for announcements, managed pages, schedule items, resources, and uploaded media assets
 
 If you are using the Supabase CLI locally, a typical bootstrap flow is:
 
@@ -87,6 +88,6 @@ This scaffold does **not** expose public signup. The intended V1 flow is:
 1. Share a private internal sign-up URL with intended staff only.
 2. Require a shared chapter access password before revealing the real sign-up form.
 3. Complete Supabase email/password sign-up.
-4. Provision the new account as `HT` by default in the app database.
+4. Provision the new account as `Editor` by default in the app database.
 
 The current codebase includes the password-gate placeholder and the supporting env/config hooks. Real staff auth UI and authorization rules should land in later tickets.

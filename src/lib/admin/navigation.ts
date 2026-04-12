@@ -45,6 +45,14 @@ export const ADMIN_SECTIONS: AdminSection[] = [
     group: "content",
   },
   {
+    slug: "resources",
+    href: "/admin/resources",
+    label: "Forms / Resources",
+    description: "Publish downloadable packets, handbooks, and public resource links.",
+    minimumRole: "editor",
+    group: "content",
+  },
+  {
     slug: "media",
     href: "/admin/media",
     label: "Media / Files",

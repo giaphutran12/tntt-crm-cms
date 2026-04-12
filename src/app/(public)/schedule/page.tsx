@@ -4,7 +4,8 @@ import {
   SectionHeading,
   SurfaceCard,
 } from "@/components/public-site";
-import { publicImages, upcomingDates, weeklyRhythm } from "@/lib/public-site";
+import { getPublishedScheduleItems } from "@/lib/cms";
+import { publicImages } from "@/lib/public-site";
 
 export const metadata: Metadata = {
   title: "Schedule",
@@ -12,7 +13,9 @@ export const metadata: Metadata = {
     "Schedule scaffold for weekly rhythms and important chapter dates on the TNTT Surrey public site.",
 };
 
-export default function SchedulePage() {
+export default async function SchedulePage() {
+  const scheduleItems = await getPublishedScheduleItems();
+
   return (
     <div className="space-y-10 pb-8">
       <PageHeader
@@ -25,23 +28,33 @@ export default function SchedulePage() {
       <section className="grid gap-5 lg:grid-cols-[1.05fr_0.95fr]">
         <SurfaceCard>
           <SectionHeading
-            eyebrow="Weekly rhythm"
+            eyebrow="Published schedule"
             title="A readable weekly structure comes first."
-            description="The public spec explicitly favors a manageable list view before investing in a more complex calendar UI."
+            description="The public schedule stays intentionally simple: a list of parent-readable entries with optional action links."
           />
           <div className="space-y-3">
-            {weeklyRhythm.map((item) => (
+            {scheduleItems.map((item) => (
               <div
-                key={item.label}
+                key={item.id}
                 className="rounded-[1.5rem] border border-[var(--line)] bg-white/78 px-5 py-4"
               >
                 <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[var(--accent)]">
-                  {item.dateLabel}
+                  {item.dateLabelEn}
                 </p>
                 <h2 className="mt-2 text-xl font-semibold text-[var(--forest)]">
-                  {item.label}
+                  {item.titleEn}
                 </h2>
-                <p className="mt-2 text-sm text-[var(--muted)]">{item.note}</p>
+                <p className="mt-2 text-sm text-[var(--muted)]">{item.noteEn}</p>
+                {item.actionHref && item.actionLabel ? (
+                  <a
+                    className="mt-4 inline-flex text-sm font-semibold text-[var(--accent)]"
+                    href={item.actionHref}
+                    rel="noreferrer"
+                    target="_blank"
+                  >
+                    {item.actionLabel}
+                  </a>
+                ) : null}
               </div>
             ))}
           </div>
@@ -66,30 +79,6 @@ export default function SchedulePage() {
           </div>
         </SurfaceCard>
       </section>
-
-      <SurfaceCard>
-        <SectionHeading
-          eyebrow="Upcoming date slots"
-          title="Special events can drop into the same visual system."
-          description="These placeholders reserve space for chapter-confirmed milestones without pretending unapproved dates are already final."
-        />
-        <div className="grid gap-4 md:grid-cols-3">
-          {upcomingDates.map((item) => (
-            <article
-              key={item.label}
-              className="rounded-[1.5rem] border border-[var(--line)] bg-white/78 p-5"
-            >
-              <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[var(--accent)]">
-                {item.dateLabel}
-              </p>
-              <h2 className="mt-3 text-xl font-semibold text-[var(--forest)]">
-                {item.label}
-              </h2>
-              <p className="mt-2 text-sm text-[var(--muted)]">{item.note}</p>
-            </article>
-          ))}
-        </div>
-      </SurfaceCard>
     </div>
   );
 }

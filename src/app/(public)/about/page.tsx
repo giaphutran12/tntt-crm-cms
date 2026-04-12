@@ -1,9 +1,11 @@
 import type { Metadata } from "next";
 import {
   PageHeader,
+  RichText,
   SectionHeading,
   SurfaceCard,
 } from "@/components/public-site";
+import { getPublishedManagedPage } from "@/lib/cms";
 import {
   aboutHighlights,
   chapterProfile,
@@ -17,13 +19,15 @@ export const metadata: Metadata = {
     "About the TNTT Surrey chapter, its parish context, and how the public site will explain the chapter to families.",
 };
 
-export default function AboutPage() {
+export default async function AboutPage() {
+  const aboutPage = await getPublishedManagedPage("about");
+
   return (
     <div className="space-y-10 pb-8">
       <PageHeader
         eyebrow="About the chapter"
-        title="A chapter overview shaped for families who may be new to TNTT."
-        description={`This page is prepared to explain ${chapterProfile.shortName}, its parish context, and its division-based structure in clear parent-friendly language once approved chapter copy is ready.`}
+        title={aboutPage.titleEn}
+        description={aboutPage.summaryEn}
         image={publicImages.aboutLead}
         aside={
           <div className="rounded-[1.5rem] border border-[var(--line)] bg-white/72 p-5">
@@ -39,20 +43,10 @@ export default function AboutPage() {
         <SurfaceCard>
           <SectionHeading
             eyebrow="Mission framing"
-            title="The page is ready for real chapter storytelling."
-            description="Instead of lorem ipsum, the scaffold already reflects the approved product boundaries and the chapter context captured in CAR docs."
+            title="The main about copy is CMS-managed."
+            description="Chapter leadership can revise the public framing for new families from the admin pages section."
           />
-          <div className="grid gap-4">
-            {aboutHighlights.map((item) => (
-              <div
-                key={item.title}
-                className="rounded-[1.5rem] border border-[var(--line)] bg-white/78 p-5"
-              >
-                <h3 className="text-lg font-semibold text-[var(--forest)]">{item.title}</h3>
-                <p className="mt-2 text-sm text-[var(--muted)]">{item.description}</p>
-              </div>
-            ))}
-          </div>
+          <RichText text={aboutPage.bodyEn} />
         </SurfaceCard>
 
         <SurfaceCard>
@@ -95,6 +89,25 @@ export default function AboutPage() {
                 {division.description}
               </p>
             </article>
+          ))}
+        </div>
+      </SurfaceCard>
+
+      <SurfaceCard>
+        <SectionHeading
+          eyebrow="Supporting notes"
+          title="The rest of the page still reflects the approved V1 boundaries."
+          description="These cards remain useful as stable family-facing framing even while the main about copy becomes editable."
+        />
+        <div className="grid gap-4">
+          {aboutHighlights.map((item) => (
+            <div
+              key={item.title}
+              className="rounded-[1.5rem] border border-[var(--line)] bg-white/78 p-5"
+            >
+              <h3 className="text-lg font-semibold text-[var(--forest)]">{item.title}</h3>
+              <p className="mt-2 text-sm text-[var(--muted)]">{item.description}</p>
+            </div>
           ))}
         </div>
       </SurfaceCard>

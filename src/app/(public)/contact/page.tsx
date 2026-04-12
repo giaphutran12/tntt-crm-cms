@@ -2,10 +2,12 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import {
   PageHeader,
+  RichText,
   SectionHeading,
   SurfaceCard,
 } from "@/components/public-site";
-import { contactCards, publicImages } from "@/lib/public-site";
+import { getFallbackContactNotes, getPublishedManagedPage } from "@/lib/cms";
+import { publicImages } from "@/lib/public-site";
 
 export const metadata: Metadata = {
   title: "Contact",
@@ -13,13 +15,16 @@ export const metadata: Metadata = {
     "Contact and chapter context page for the TNTT Surrey public site.",
 };
 
-export default function ContactPage() {
+export default async function ContactPage() {
+  const contactPage = await getPublishedManagedPage("contact");
+  const contactCards = getFallbackContactNotes();
+
   return (
     <div className="space-y-10 pb-8">
       <PageHeader
         eyebrow="Contact"
-        title="A public contact page that stays honest about what is confirmed."
-        description="The route is in place now so future tickets can add the final inbox, contact form, and editor-managed details without reworking the public site shell."
+        title={contactPage.titleEn}
+        description={contactPage.summaryEn}
         image={publicImages.contactLead}
         actions={
           <>
@@ -36,20 +41,10 @@ export default function ContactPage() {
       <SurfaceCard>
         <SectionHeading
           eyebrow="Contact structure"
-          title="The page is ready for chapter-approved details."
-          description="Until leadership confirms the public inbox and preferred routing, the contact experience should stay truthful instead of fabricating email addresses or phone numbers."
+          title="The main contact copy is editor-managed."
+          description="Leadership can update the public-facing contact guidance in the CMS while this route keeps the same public structure."
         />
-        <div className="grid gap-4 md:grid-cols-2">
-          {contactCards.map((card) => (
-            <article
-              key={card.title}
-              className="rounded-[1.5rem] border border-[var(--line)] bg-white/78 p-5"
-            >
-              <h2 className="text-xl font-semibold text-[var(--forest)]">{card.title}</h2>
-              <p className="mt-3 text-sm text-[var(--muted)]">{card.description}</p>
-            </article>
-          ))}
-        </div>
+        <RichText text={contactPage.bodyEn} />
       </SurfaceCard>
 
       <section className="grid gap-5 lg:grid-cols-[1.05fr_0.95fr]">
@@ -91,6 +86,25 @@ export default function ContactPage() {
           </div>
         </SurfaceCard>
       </section>
+
+      <SurfaceCard>
+        <SectionHeading
+          eyebrow="Fallback contact notes"
+          title="Stable guidance remains visible until leadership finalizes everything."
+          description="These notes keep the route honest even while the chapter iterates on the exact public inbox and follow-up flow."
+        />
+        <div className="grid gap-4 md:grid-cols-2">
+          {contactCards.map((card) => (
+            <article
+              key={card.title}
+              className="rounded-[1.5rem] border border-[var(--line)] bg-white/78 p-5"
+            >
+              <h2 className="text-xl font-semibold text-[var(--forest)]">{card.title}</h2>
+              <p className="mt-3 text-sm text-[var(--muted)]">{card.description}</p>
+            </article>
+          ))}
+        </div>
+      </SurfaceCard>
     </div>
   );
 }

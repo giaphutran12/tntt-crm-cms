@@ -1,3 +1,4 @@
+import { CmsDashboardPanel } from "@/components/admin/cms";
 import { getDashboardCapabilityCards } from "@/lib/admin/navigation";
 import { requireAuthenticatedAppUser } from "@/lib/auth/session";
 
@@ -43,6 +44,8 @@ export default async function AdminPage() {
           </div>
         ))}
       </div>
+
+      <CmsDashboardPanel />
     </section>
   );
 }

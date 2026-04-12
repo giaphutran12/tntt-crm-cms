@@ -2,18 +2,22 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import {
   PageHeader,
+  RichText,
   SectionHeading,
   SurfaceCard,
 } from "@/components/public-site";
 import {
-  announcementPreviews,
+  getPublishedAnnouncements,
+  getPublishedManagedPage,
+  getPublishedResources,
+  getPublishedScheduleItems,
+} from "@/lib/cms";
+import {
   chapterProfile,
-  cmsReadyNotes,
   divisionOverview,
   familyNeeds,
   primaryActions,
   publicImages,
-  upcomingDates,
 } from "@/lib/public-site";
 
 export const metadata: Metadata = {
@@ -22,13 +26,44 @@ export const metadata: Metadata = {
     "Public website scaffold for TNTT Surrey families to find announcements, dates, and chapter resources.",
 };
 
-export default function HomePage() {
+function formatPublicDate(value: string | null) {
+  if (!value) {
+    return "Draft scaffold";
+  }
+
+  return new Intl.DateTimeFormat("en-CA", {
+    dateStyle: "medium",
+  }).format(new Date(value));
+}
+
+export default async function HomePage() {
+  const [managedHomePage, publishedAnnouncements, publishedScheduleItems, publishedResources] =
+    await Promise.all([
+      getPublishedManagedPage("home"),
+      getPublishedAnnouncements(6),
+      getPublishedScheduleItems(),
+      getPublishedResources(),
+    ]);
+
+  const announcementPreviewCards =
+    publishedAnnouncements.filter((announcement) => announcement.isFeatured).slice(0, 3).length > 0
+      ? publishedAnnouncements.filter((announcement) => announcement.isFeatured).slice(0, 3)
+      : publishedAnnouncements.slice(0, 3);
+  const featuredDates =
+    publishedScheduleItems.filter((item) => item.isFeatured).slice(0, 3).length > 0
+      ? publishedScheduleItems.filter((item) => item.isFeatured).slice(0, 3)
+      : publishedScheduleItems.slice(0, 3);
+  const featuredResources =
+    publishedResources.filter((resource) => resource.isFeatured).slice(0, 3).length > 0
+      ? publishedResources.filter((resource) => resource.isFeatured).slice(0, 3)
+      : publishedResources.slice(0, 3);
+
   return (
     <div className="space-y-10 pb-8">
       <PageHeader
         eyebrow="Chapter website preview"
-        title="A public front door for parents, families, and chapter updates."
-        description={`${chapterProfile.shortName} now has a dedicated public shell for announcements, dates, and downloadable resources instead of relying only on scattered email chains.`}
+        title={managedHomePage.titleEn}
+        description={managedHomePage.summaryEn}
         image={publicImages.homeHero}
         actions={
           <>
@@ -93,20 +128,11 @@ export default function HomePage() {
 
         <SurfaceCard>
           <SectionHeading
-            eyebrow="Ready for CMS data"
-            title="The shell already matches future content flows."
-            description="This avoids a throwaway prototype and keeps later tickets focused on data wiring, auth, and editor workflows."
+            eyebrow="Homepage copy"
+            title="The intro text is now CMS-managed."
+            description="Editors can update the homepage framing in the admin without touching the route layout or code."
           />
-          <div className="space-y-3">
-            {cmsReadyNotes.map((note) => (
-              <div
-                key={note}
-                className="rounded-[1.25rem] border border-[var(--line)] bg-white/80 px-4 py-4 text-sm text-[var(--muted)]"
-              >
-                {note}
-              </div>
-            ))}
-          </div>
+          <RichText text={managedHomePage.bodyEn} />
         </SurfaceCard>
       </section>
 
@@ -115,29 +141,34 @@ export default function HomePage() {
           <SectionHeading
             eyebrow="Homepage modules"
             title="Latest announcements preview"
-            description="Seeded cards show the structure the CMS will eventually populate with real publish dates, summaries, and attachments."
+            description="Featured records appear here first. If nothing is featured yet, the latest published announcements fill the preview."
           />
           <div className="grid gap-4 lg:grid-cols-3">
-            {announcementPreviews.map((announcement) => (
+            {announcementPreviewCards.map((announcement) => (
               <article
                 key={announcement.slug}
                 className="rounded-[1.5rem] border border-[var(--line)] bg-white/78 p-5"
               >
                 <div className="flex flex-wrap items-center gap-2 text-xs font-semibold uppercase tracking-[0.16em] text-[var(--accent)]">
-                  <span>{announcement.publishDate}</span>
+                  <span>{formatPublicDate(announcement.publishedAt)}</span>
                   <span className="rounded-full border border-[var(--line)] px-2 py-1 text-[0.68rem] tracking-[0.12em] text-[var(--muted)]">
                     {announcement.status}
                   </span>
                 </div>
                 <h3 className="mt-3 text-xl font-semibold text-[var(--forest)]">
-                  {announcement.title.en}
+                  {announcement.titleEn}
                 </h3>
-                <p className="mt-2 text-sm font-medium text-[var(--accent-strong)]">
-                  Audience: {announcement.audience}
-                </p>
-                <p className="mt-3 text-sm text-[var(--muted)]">
-                  {announcement.summary.en}
-                </p>
+                {announcement.audience ? (
+                  <p className="mt-2 text-sm font-medium text-[var(--accent-strong)]">
+                    Audience: {announcement.audience}
+                  </p>
+                ) : null}
+                <p className="mt-3 text-sm text-[var(--muted)]">{announcement.summaryEn}</p>
+                {announcement.attachment ? (
+                  <Link className="mt-4 inline-flex text-sm font-semibold text-[var(--accent)]" href={announcement.attachment.publicUrl} target="_blank">
+                    Open attachment
+                  </Link>
+                ) : null}
               </article>
             ))}
           </div>
@@ -150,18 +181,23 @@ export default function HomePage() {
             description="The first version focuses on clarity, not calendar complexity."
           />
           <div className="space-y-3">
-            {upcomingDates.map((item) => (
+            {featuredDates.map((item) => (
               <div
-                key={item.label}
+                key={item.id}
                 className="rounded-[1.5rem] border border-[var(--line)] bg-white/78 px-4 py-4"
               >
                 <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[var(--accent)]">
-                  {item.dateLabel}
+                  {item.dateLabelEn}
                 </p>
                 <h3 className="mt-2 text-lg font-semibold text-[var(--forest)]">
-                  {item.label}
+                  {item.titleEn}
                 </h3>
-                <p className="mt-2 text-sm text-[var(--muted)]">{item.note}</p>
+                <p className="mt-2 text-sm text-[var(--muted)]">{item.noteEn}</p>
+                {item.actionHref && item.actionLabel ? (
+                  <Link className="mt-4 inline-flex text-sm font-semibold text-[var(--accent)]" href={item.actionHref} target="_blank">
+                    {item.actionLabel}
+                  </Link>
+                ) : null}
               </div>
             ))}
           </div>
@@ -194,17 +230,29 @@ export default function HomePage() {
 
         <SurfaceCard>
           <SectionHeading
-            eyebrow="Editorial direction"
-            title="Chapter-specific, not generic SaaS."
-            description="Typography, color, and imagery draw from Catholic and chapter context while leaving space for real content to replace scaffolds."
+            eyebrow="Featured resources"
+            title="Important downloads can surface on the homepage too."
+            description="Feature the most important packet, handbook, or family resource here while the full library remains on the dedicated resources page."
           />
           <div className="grid gap-3">
-            <div className="rounded-[1.25rem] border border-[var(--line)] bg-white/78 px-4 py-4 text-sm text-[var(--muted)]">
-              Warm parchment tones, forest accents, and chapel imagery make the public shell feel more like a parish community than a dashboard product.
-            </div>
-            <div className="rounded-[1.25rem] border border-[var(--line)] bg-white/78 px-4 py-4 text-sm text-[var(--muted)]">
-              Announcement, schedule, and resource surfaces are intentionally calm and readable on mobile, where most parents will encounter them.
-            </div>
+            {featuredResources.map((resource) => (
+              <div
+                key={resource.id}
+                className="rounded-[1.25rem] border border-[var(--line)] bg-white/78 px-4 py-4 text-sm text-[var(--muted)]"
+              >
+                <p className="font-semibold text-[var(--forest)]">{resource.titleEn}</p>
+                <p className="mt-2">{resource.descriptionEn}</p>
+                {resource.file ? (
+                  <Link className="mt-3 inline-flex font-semibold text-[var(--accent)]" href={resource.file.publicUrl} target="_blank">
+                    Download file
+                  </Link>
+                ) : resource.linkUrl ? (
+                  <Link className="mt-3 inline-flex font-semibold text-[var(--accent)]" href={resource.linkUrl} target="_blank">
+                    Open link
+                  </Link>
+                ) : null}
+              </div>
+            ))}
             <div className="rounded-[1.25rem] border border-[var(--line)] bg-white/78 px-4 py-4 text-sm text-[var(--muted)]">
               {chapterProfile.bilingualNote}
             </div>

@@ -5,7 +5,8 @@ import {
   SectionHeading,
   SurfaceCard,
 } from "@/components/public-site";
-import { publicImages, resourcePreviews } from "@/lib/public-site";
+import { getPublishedResources } from "@/lib/cms";
+import { publicImages } from "@/lib/public-site";
 
 export const metadata: Metadata = {
   title: "Forms & Resources",
@@ -13,7 +14,9 @@ export const metadata: Metadata = {
     "Forms and resources scaffold for future public file uploads on the TNTT Surrey site.",
 };
 
-export default function FormsResourcesPage() {
+export default async function FormsResourcesPage() {
+  const resources = await getPublishedResources();
+
   return (
     <div className="space-y-10 pb-8">
       <PageHeader
@@ -31,30 +34,38 @@ export default function FormsResourcesPage() {
       <SurfaceCard>
         <SectionHeading
           eyebrow="Resource library"
-          title="The content model is already shaped for file-backed records."
-          description="Each card can later carry a file URL, summary, publish status, audience label, and optional bilingual metadata."
+          title="Public resources now come from the CMS."
+          description="Each record can carry a file URL, summary, publish status, audience label, and optional bilingual metadata."
         />
         <div className="grid gap-4 lg:grid-cols-3">
-          {resourcePreviews.map((resource) => (
+          {resources.map((resource) => (
             <article
-              key={resource.title.en}
+              key={resource.id}
               className="rounded-[1.5rem] border border-[var(--line)] bg-white/78 p-5"
             >
               <div className="flex items-center justify-between gap-4">
-                <p className="eyebrow">{resource.availability}</p>
-                <span className="rounded-full border border-[var(--line)] px-3 py-1 text-xs font-semibold uppercase tracking-[0.16em] text-[var(--muted)]">
-                  {resource.audience}
-                </span>
+                <p className="eyebrow">{resource.availabilityLabel ?? "Available"}</p>
+                {resource.audience ? (
+                  <span className="rounded-full border border-[var(--line)] px-3 py-1 text-xs font-semibold uppercase tracking-[0.16em] text-[var(--muted)]">
+                    {resource.audience}
+                  </span>
+                ) : null}
               </div>
               <h2 className="mt-3 text-2xl font-semibold text-[var(--forest)]">
-                {resource.title.en}
+                {resource.titleEn}
               </h2>
               <p className="mt-3 text-sm text-[var(--muted)]">
-                {resource.description.en}
+                {resource.descriptionEn}
               </p>
-              <p className="mt-4 text-xs uppercase tracking-[0.16em] text-[var(--muted)]">
-                Vietnamese-ready field: {resource.title.vi}
-              </p>
+              {resource.file ? (
+                <Link className="mt-4 inline-flex text-sm font-semibold text-[var(--accent)]" href={resource.file.publicUrl} target="_blank">
+                  Download file
+                </Link>
+              ) : resource.linkUrl ? (
+                <Link className="mt-4 inline-flex text-sm font-semibold text-[var(--accent)]" href={resource.linkUrl} target="_blank">
+                  Open link
+                </Link>
+              ) : null}
             </article>
           ))}
         </div>
@@ -83,15 +94,15 @@ export default function FormsResourcesPage() {
         <SurfaceCard>
           <SectionHeading
             eyebrow="Current state"
-            title="The UI is ready even though files are not checked into the repo yet."
-            description="This keeps the public information architecture moving without inventing fake downloadable assets."
+            title="Editors can now publish resources without code changes."
+            description="The admin resources screen supports uploaded public files and external links, so this public route stays up to date through the CMS."
           />
           <div className="space-y-3">
             <div className="rounded-[1.25rem] border border-[var(--line)] bg-white/78 px-4 py-4 text-sm text-[var(--muted)]">
-              No public form files were found in the repo during the earlier asset audit, so this route intentionally stays upload-ready rather than pretending downloads exist.
+              Public resources should be intentionally published here; private registration submissions and internal records should not.
             </div>
             <div className="rounded-[1.25rem] border border-[var(--line)] bg-white/78 px-4 py-4 text-sm text-[var(--muted)]">
-              Once the CMS lands, this page can be fed from a simple resource table with titles, summaries, files, audience labels, and publish state.
+              Seasonal packets, retreat forms, and evergreen handbooks can share the same list pattern without changing the page layout.
             </div>
           </div>
         </SurfaceCard>

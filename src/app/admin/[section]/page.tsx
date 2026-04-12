@@ -1,5 +1,6 @@
 import { notFound } from "next/navigation";
 import { AccessDeniedPanel } from "@/components/admin/access-panels";
+import { CmsSectionContent } from "@/components/admin/cms";
 import { getAdminSection } from "@/lib/admin/navigation";
 import { requireMinimumRole } from "@/lib/auth/session";
 
@@ -7,10 +8,18 @@ type AdminSectionPageProps = {
   params: Promise<{
     section: string;
   }>;
+  searchParams: Promise<{
+    error?: string;
+    notice?: string;
+  }>;
 };
 
-export default async function AdminSectionPage({ params }: AdminSectionPageProps) {
+export default async function AdminSectionPage({
+  params,
+  searchParams,
+}: AdminSectionPageProps) {
   const { section } = await params;
+  const resolvedSearchParams = await searchParams;
   const adminSection = getAdminSection(section);
 
   if (!adminSection) {
@@ -29,6 +38,15 @@ export default async function AdminSectionPage({ params }: AdminSectionPageProps
         currentRoleLabel={access.currentUser.roleLabel}
         minimumRole={adminSection.minimumRole}
         sectionLabel={adminSection.label}
+      />
+    );
+  }
+
+  if (adminSection.group === "content") {
+    return (
+      <CmsSectionContent
+        searchParams={resolvedSearchParams}
+        section={adminSection.slug}
       />
     );
   }
@@ -60,11 +78,11 @@ export default async function AdminSectionPage({ params }: AdminSectionPageProps
         <div className="rounded-[1.5rem] border border-[var(--line)] bg-white/80 p-5">
           <p className="eyebrow mb-2">Boundary</p>
           <p className="text-lg font-semibold text-[var(--forest)]">
-            {adminSection.group === "content"
-              ? "Public CMS"
-              : adminSection.group === "crm"
+            {adminSection.group === "crm"
                 ? "Sensitive CRM"
-                : "Administration"}
+                : adminSection.group === "overview"
+                  ? "Overview"
+                  : "Administration"}
           </p>
           <p className="mt-2 text-sm text-[var(--muted)]">
             Public publishing and child-data access intentionally stay on different

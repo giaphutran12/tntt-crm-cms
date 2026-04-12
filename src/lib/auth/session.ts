@@ -3,8 +3,9 @@ import "server-only";
 import type { User } from "@supabase/supabase-js";
 import { cache } from "react";
 import { redirect } from "next/navigation";
-import { isSupabaseConfigured } from "@/lib/env";
+import { isDatabaseConfigured, isSupabaseConfigured } from "@/lib/env";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { query } from "@/server/db";
 import {
   DEFAULT_APP_ROLE,
   getRoleDescription,
@@ -42,6 +43,28 @@ function getSafeRedirectPath(
   return nextPath;
 }
 
+async function getRoleFromDatabase(userId: string) {
+  if (!isDatabaseConfigured()) {
+    return null;
+  }
+
+  try {
+    const result = await query<{ role: string }>(
+      `
+        select role::text as role
+        from public.app_users
+        where id = $1
+        limit 1
+      `,
+      [userId],
+    );
+
+    return normalizeAppRole(result.rows[0]?.role ?? null);
+  } catch {
+    return null;
+  }
+}
+
 function getRoleFromUser(user: User): AppRole {
   const metadataCandidates = [
     user.app_metadata.role,
@@ -63,8 +86,8 @@ function getRoleFromUser(user: User): AppRole {
   return DEFAULT_APP_ROLE;
 }
 
-function toAppUser(user: User): AppUser {
-  const role = getRoleFromUser(user);
+async function toAppUser(user: User): Promise<AppUser> {
+  const role = (await getRoleFromDatabase(user.id)) ?? getRoleFromUser(user);
   const name =
     typeof user.user_metadata.full_name === "string"
       ? user.user_metadata.full_name

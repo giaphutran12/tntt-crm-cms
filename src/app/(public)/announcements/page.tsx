@@ -4,7 +4,8 @@ import {
   SectionHeading,
   SurfaceCard,
 } from "@/components/public-site";
-import { announcementPreviews, publicImages } from "@/lib/public-site";
+import { getPublishedAnnouncements } from "@/lib/cms";
+import { publicImages } from "@/lib/public-site";
 
 export const metadata: Metadata = {
   title: "Announcements",
@@ -12,51 +13,68 @@ export const metadata: Metadata = {
     "Announcement archive scaffold for the TNTT Surrey public site, ready for future CMS content.",
 };
 
-export default function AnnouncementsPage() {
+function formatAnnouncementDate(value: string | null) {
+  if (!value) {
+    return "Draft scaffold";
+  }
+
+  return new Intl.DateTimeFormat("en-CA", { dateStyle: "medium" }).format(new Date(value));
+}
+
+export default async function AnnouncementsPage() {
+  const announcements = await getPublishedAnnouncements();
+
   return (
     <div className="space-y-10 pb-8">
       <PageHeader
         eyebrow="Announcements"
         title="A clean archive for chapter-wide updates and event notices."
-        description="Families should be able to scan current updates quickly, then open the right document or follow-up path when the CMS starts publishing real records."
+        description="Families should be able to scan current updates quickly, then open the right document or follow-up path without digging through old email threads."
         image={publicImages.announcementsLead}
         aside={
           <div className="rounded-[1.5rem] border border-[var(--line)] bg-white/72 p-5 text-sm text-[var(--muted)]">
-            Announcement cards are already shaped for title, summary, audience, publish date, and future attachments.
+            Featured announcements can appear on the homepage while the full public archive lives here.
           </div>
         }
       />
 
       <SurfaceCard>
         <SectionHeading
-          eyebrow="Seed content"
-          title="Archive cards are present even before the CMS is connected."
-          description="The placeholders below are intentionally obvious scaffolds so the chapter can replace them with approved copy later instead of rewriting the UI."
+          eyebrow="Published archive"
+          title="Public announcements now come from the CMS."
+          description="Editors can publish retreat notices, reminders, and chapter updates from the admin shell. Attachments remain intentionally public."
         />
         <div className="grid gap-4 lg:grid-cols-3">
-          {announcementPreviews.map((announcement) => (
+          {announcements.map((announcement) => (
             <article
               key={announcement.slug}
               className="rounded-[1.5rem] border border-[var(--line)] bg-white/78 p-5"
             >
               <div className="flex flex-wrap gap-2 text-xs font-semibold uppercase tracking-[0.16em] text-[var(--accent)]">
-                <span>{announcement.publishDate}</span>
+                <span>{formatAnnouncementDate(announcement.publishedAt)}</span>
                 <span className="rounded-full border border-[var(--line)] px-2 py-1 text-[0.68rem] tracking-[0.12em] text-[var(--muted)]">
                   {announcement.status}
                 </span>
               </div>
               <h2 className="mt-3 text-2xl font-semibold text-[var(--forest)]">
-                {announcement.title.en}
+                {announcement.titleEn}
               </h2>
-              <p className="mt-2 text-sm font-medium text-[var(--accent-strong)]">
-                Audience: {announcement.audience}
-              </p>
-              <p className="mt-3 text-sm text-[var(--muted)]">
-                {announcement.summary.en}
-              </p>
-              <p className="mt-4 text-xs uppercase tracking-[0.16em] text-[var(--muted)]">
-                Vietnamese-ready field: {announcement.title.vi}
-              </p>
+              {announcement.audience ? (
+                <p className="mt-2 text-sm font-medium text-[var(--accent-strong)]">
+                  Audience: {announcement.audience}
+                </p>
+              ) : null}
+              <p className="mt-3 text-sm text-[var(--muted)]">{announcement.summaryEn}</p>
+              {announcement.attachment ? (
+                <a
+                  className="mt-4 inline-flex text-sm font-semibold text-[var(--accent)]"
+                  href={announcement.attachment.publicUrl}
+                  rel="noreferrer"
+                  target="_blank"
+                >
+                  Open attachment
+                </a>
+              ) : null}
             </article>
           ))}
         </div>
@@ -67,17 +85,17 @@ export default function AnnouncementsPage() {
           <SectionHeading
             eyebrow="Publishing expectations"
             title="This page is aimed at the real announcement workflow."
-            description="Later tickets can focus on editor auth and data persistence because the public presentation layer is already in place."
+            description="Announcements are intended for public chapter communication only. Family-sensitive or student-specific records remain inside the protected admin and CRM surfaces."
           />
           <div className="space-y-3 text-sm text-[var(--muted)]">
             <div className="rounded-[1.25rem] border border-[var(--line)] bg-white/78 px-4 py-4">
-              Featured updates should surface on the homepage while the full archive lives here.
+              Use announcement cards for chapter-wide updates, event reminders, and family-facing deadlines.
             </div>
             <div className="rounded-[1.25rem] border border-[var(--line)] bg-white/78 px-4 py-4">
-              Time-sensitive posts should be able to carry attached PDFs and clear audience labels.
+              Time-sensitive posts can carry attached PDFs and clear audience labels.
             </div>
             <div className="rounded-[1.25rem] border border-[var(--line)] bg-white/78 px-4 py-4">
-              Short reminder posts and larger event announcements can share the same card/list pattern without becoming visually noisy.
+              Short reminder posts and larger event announcements can share the same archive without becoming visually noisy.
             </div>
           </div>
         </SurfaceCard>

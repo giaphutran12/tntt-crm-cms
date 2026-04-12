@@ -181,3 +181,25 @@ export function SurfaceCard({
     </div>
   );
 }
+
+export function RichText({
+  text,
+  className = "text-sm text-[var(--muted)]",
+}: {
+  className?: string;
+  text: string;
+}) {
+  return (
+    <div className="space-y-3">
+      {text
+        .split(/\n\s*\n/)
+        .map((paragraph) => paragraph.trim())
+        .filter(Boolean)
+        .map((paragraph, index) => (
+          <p key={`${paragraph.slice(0, 24)}-${index}`} className={className}>
+            {paragraph}
+          </p>
+        ))}
+    </div>
+  );
+}
