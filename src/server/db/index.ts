@@ -6,14 +6,25 @@ declare global {
   var __tnttPool: Pool | undefined;
 }
 
+export function getDatabaseSslConfig(databaseUrl = getRequiredDatabaseUrl()) {
+  const parsedUrl = new URL(databaseUrl);
+  const sslMode = parsedUrl.searchParams.get("sslmode")?.toLowerCase();
+  const hostname = parsedUrl.hostname.toLowerCase();
+  const isLocalDatabaseHost =
+    hostname === "localhost" || hostname === "127.0.0.1" || hostname === "::1";
+
+  if (sslMode === "disable" || isLocalDatabaseHost) {
+    return false;
+  }
+
+  return { rejectUnauthorized: false };
+}
+
 function createPool() {
   return new Pool({
     connectionString: getRequiredDatabaseUrl(),
     max: 10,
-    ssl:
-      process.env.NODE_ENV === "production"
-        ? { rejectUnauthorized: false }
-        : false,
+    ssl: getDatabaseSslConfig(),
   });
 }
 

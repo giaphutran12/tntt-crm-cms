@@ -9,6 +9,9 @@ import {
 describe("provisionStaffUser", () => {
   it("upserts the app user before syncing auth role metadata", async () => {
     const calls: string[] = [];
+    const ensureAuthUser = vi.fn(async () => {
+      calls.push("ensure-auth");
+    });
     const upsertAppUser = vi.fn(async () => {
       calls.push("upsert");
     });
@@ -20,21 +23,28 @@ describe("provisionStaffUser", () => {
     });
 
     await provisionStaffUser(
-      {
-        email: "staff@example.com",
-        fullName: "Staff User",
-        userId: "user-1",
-      },
-      {},
-      {
-        deleteAuthUser,
-        updateAuthRoleMetadata,
-        upsertAppUser,
-      },
-    );
+        {
+          email: "staff@example.com",
+          fullName: "Staff User",
+          userId: "user-1",
+        },
+        {},
+        {
+          deleteAuthUser,
+          ensureAuthUser,
+          updateAuthRoleMetadata,
+          upsertAppUser,
+        },
+      );
 
-    expect(calls).toEqual(["upsert", "metadata"]);
+    expect(calls).toEqual(["ensure-auth", "upsert", "metadata"]);
     expect(upsertAppUser).toHaveBeenCalledWith({
+      email: "staff@example.com",
+      fullName: "Staff User",
+      role: "editor",
+      userId: "user-1",
+    });
+    expect(ensureAuthUser).toHaveBeenCalledWith({
       email: "staff@example.com",
       fullName: "Staff User",
       role: "editor",
@@ -45,6 +55,7 @@ describe("provisionStaffUser", () => {
   });
 
   it("rolls back the auth user when provisioning fails during sign-up", async () => {
+    const ensureAuthUser = vi.fn(async () => {});
     const upsertAppUser = vi.fn(async () => {});
     const updateAuthRoleMetadata = vi.fn(async () => {
       throw new Error("metadata failed");
@@ -60,6 +71,7 @@ describe("provisionStaffUser", () => {
         { cleanupAuthUserOnFailure: true },
         {
           deleteAuthUser,
+          ensureAuthUser,
           updateAuthRoleMetadata,
           upsertAppUser,
         },
@@ -67,6 +79,35 @@ describe("provisionStaffUser", () => {
     ).rejects.toThrow("metadata failed");
 
     expect(deleteAuthUser).toHaveBeenCalledWith("user-2");
+  });
+
+  it("rolls back the auth user when the database-side auth mirror cannot be created", async () => {
+    const ensureAuthUser = vi.fn(async () => {
+      throw new Error("auth mirror failed");
+    });
+    const upsertAppUser = vi.fn(async () => {});
+    const updateAuthRoleMetadata = vi.fn(async () => {});
+    const deleteAuthUser = vi.fn(async () => {});
+
+    await expect(
+      provisionStaffUser(
+        {
+          email: "staff@example.com",
+          userId: "user-3",
+        },
+        { cleanupAuthUserOnFailure: true },
+        {
+          deleteAuthUser,
+          ensureAuthUser,
+          updateAuthRoleMetadata,
+          upsertAppUser,
+        },
+      ),
+    ).rejects.toThrow("auth mirror failed");
+
+    expect(upsertAppUser).not.toHaveBeenCalled();
+    expect(updateAuthRoleMetadata).not.toHaveBeenCalled();
+    expect(deleteAuthUser).toHaveBeenCalledWith("user-3");
   });
 });
 

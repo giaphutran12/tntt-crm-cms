@@ -33,6 +33,7 @@ export type StaffUserProvisioningInput = {
 
 type StaffUserProvisioningDependencies = {
   deleteAuthUser: (userId: string) => Promise<void>;
+  ensureAuthUser: (input: Required<StaffUserProvisioningInput>) => Promise<void>;
   updateAuthRoleMetadata: (userId: string, role: AppRole) => Promise<void>;
   upsertAppUser: (input: Required<StaffUserProvisioningInput>) => Promise<void>;
 };
@@ -115,6 +116,7 @@ export async function provisionStaffUser(
   };
 
   try {
+    await dependencies.ensureAuthUser(normalizedInput);
     await dependencies.upsertAppUser(normalizedInput);
     await dependencies.updateAuthRoleMetadata(
       normalizedInput.userId,
@@ -138,6 +140,72 @@ function createDefaultDependencies(): StaffUserProvisioningDependencies {
     deleteAuthUser: async (userId) => {
       const supabaseAdmin = createSupabaseAdminClient();
       await supabaseAdmin.auth.admin.deleteUser(userId);
+    },
+    ensureAuthUser: async ({ email, fullName, role, userId }) => {
+      const existingAuthUserResult = await query<{ exists: boolean }>(
+        `
+          select exists (
+            select 1
+            from auth.users
+            where id = $1
+          ) as exists
+        `,
+        [userId],
+      );
+
+      if (existingAuthUserResult.rows[0]?.exists) {
+        return;
+      }
+
+      await query(
+        `
+          insert into auth.users (
+            id,
+            email,
+            aud,
+            role,
+            email_confirmed_at,
+            raw_app_meta_data,
+            raw_user_meta_data,
+            created_at,
+            updated_at,
+            is_sso_user,
+            is_anonymous
+          )
+          values (
+            $1,
+            $2,
+            'authenticated',
+            'authenticated',
+            timezone('utc', now()),
+            $3::jsonb,
+            $4::jsonb,
+            timezone('utc', now()),
+            timezone('utc', now()),
+            false,
+            false
+          )
+          on conflict (id) do update
+          set
+            email = excluded.email,
+            raw_app_meta_data = excluded.raw_app_meta_data,
+            raw_user_meta_data = excluded.raw_user_meta_data,
+            updated_at = timezone('utc', now())
+        `,
+        [
+          userId,
+          email,
+          JSON.stringify(getStaffRoleMetadata(role)),
+          JSON.stringify(
+            fullName
+              ? {
+                  full_name: fullName,
+                  name: fullName,
+                }
+              : {},
+          ),
+        ],
+      );
     },
     updateAuthRoleMetadata: async (userId, role) => {
       const supabaseAdmin = createSupabaseAdminClient();
