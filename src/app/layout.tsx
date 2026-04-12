@@ -15,9 +15,12 @@ const bodyFont = Manrope({
 });
 
 export const metadata: Metadata = {
-  title: "TNTT Surrey CRM/CMS",
+  title: {
+    default: "TNTT Surrey",
+    template: "%s | TNTT Surrey",
+  },
   description:
-    "Foundation scaffold for the TNTT Surrey public site and internal CRM/CMS.",
+    "Public website plus internal CRM/CMS foundation for the Doan Duc Me La Vang chapter in Surrey, BC.",
 };
 
 export default function RootLayout({
