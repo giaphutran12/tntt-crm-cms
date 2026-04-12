@@ -79,7 +79,7 @@ export default async function SignUpPage({ searchParams }: SignUpPageProps) {
               <p className="mt-2 text-sm text-[var(--muted)]">
                 The gate cookie is set for this browser session. Later tickets should
                 swap the placeholder form below for a real Supabase email/password
-                sign-up and role-aware onboarding step.
+                sign-up and role-aware onboarding step with the default Editor role.
               </p>
             </div>
 
@@ -110,8 +110,8 @@ export default async function SignUpPage({ searchParams }: SignUpPageProps) {
               </p>
               <p className="mt-2">
                 When connected, the final implementation should create a Supabase
-                auth user and rely on the SQL trigger to provision the app-level `HT`
-                role by default.
+                auth user and rely on the app user provisioning step to assign the
+                default `editor` role before any Operations or Admin elevation.
               </p>
             </div>
 
