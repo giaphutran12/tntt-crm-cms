@@ -4,20 +4,28 @@ import type {
   SelectHTMLAttributes,
   TextareaHTMLAttributes,
 } from "react";
+import Link from "next/link";
 import {
   CRM_CERTIFICATE_STATUSES,
   CRM_MACRO_DIVISIONS,
+  CRM_ROSTER_ATTENTION_FILTERS,
   CRM_REGISTRATION_STATUSES,
+  applyDefaultRosterCycle,
+  formatCrmEnumLabel,
   listClassGroupsForAdmin,
   listDivisionLevelsForAdmin,
   listFamiliesForAdmin,
   listRegistrationCyclesForAdmin,
+  listRosterRecordsForAdmin,
   listStudentRegistrationsForAdmin,
   listStudentsForAdmin,
+  parseCrmRosterFilters,
   type CrmClassGroup,
   type CrmDivisionLevel,
   type CrmFamily,
   type CrmRegistrationCycle,
+  type CrmRosterFilters,
+  type CrmRosterRecord,
   type CrmStudent,
   type CrmStudentRegistration,
 } from "@/lib/crm";
@@ -31,23 +39,38 @@ import {
   saveStudentRegistrationAction,
 } from "@/app/admin/crm-actions";
 
-type SectionSearchParams = {
-  error?: string;
-  notice?: string;
+type SearchParamValue = string | string[] | undefined;
+
+type SectionSearchParams = Record<string, SearchParamValue> & {
+  attention?: SearchParamValue;
+  classGroupId?: SearchParamValue;
+  cycleId?: SearchParamValue;
+  divisionId?: SearchParamValue;
+  error?: SearchParamValue;
+  notice?: SearchParamValue;
+  registrationStatus?: SearchParamValue;
+  team?: SearchParamValue;
 };
 
+function getSearchParamValue(value: SearchParamValue) {
+  return Array.isArray(value) ? value[0] : value;
+}
+
 function NoticeBanner({ error, notice }: SectionSearchParams) {
-  if (!error && !notice) {
+  const resolvedError = getSearchParamValue(error);
+  const resolvedNotice = getSearchParamValue(notice);
+
+  if (!resolvedError && !resolvedNotice) {
     return null;
   }
 
-  const tone = error
+  const tone = resolvedError
     ? "border-[rgba(164,61,47,0.28)] bg-[rgba(164,61,47,0.08)] text-[var(--accent-strong)]"
     : "border-[rgba(32,68,58,0.18)] bg-[rgba(32,68,58,0.08)] text-[var(--forest)]";
 
   return (
     <div className={`rounded-[1.5rem] border px-5 py-4 text-sm font-medium ${tone}`}>
-      {error ?? notice}
+      {resolvedError ?? resolvedNotice}
     </div>
   );
 }
@@ -223,6 +246,79 @@ function formatMoney(value: string | null) {
     currency: "CAD",
     style: "currency",
   }).format(amount);
+}
+
+function buildRosterQueryString(filters: CrmRosterFilters) {
+  const params = new URLSearchParams();
+
+  if (filters.cycleId) {
+    params.set("cycleId", filters.cycleId);
+  }
+
+  if (filters.divisionId) {
+    params.set("divisionId", filters.divisionId);
+  }
+
+  if (filters.classGroupId) {
+    params.set("classGroupId", filters.classGroupId);
+  }
+
+  if (filters.registrationStatus) {
+    params.set("registrationStatus", filters.registrationStatus);
+  }
+
+  if (filters.team) {
+    params.set("team", filters.team);
+  }
+
+  if (filters.attention !== "all") {
+    params.set("attention", filters.attention);
+  }
+
+  return params.toString();
+}
+
+function getRosterCycleLabel(cycleId: string | null, cycles: CrmRegistrationCycle[]) {
+  if (!cycleId) {
+    return "All cycles";
+  }
+
+  const cycle = cycles.find((item) => item.id === cycleId);
+  return cycle ? `${cycle.schoolYearLabel} • ${cycle.name}` : "Selected cycle";
+}
+
+function SummaryCard({
+  detail,
+  label,
+  value,
+}: {
+  detail: string;
+  label: string;
+  value: string;
+}) {
+  return (
+    <div className="rounded-[1.5rem] border border-[var(--line)] bg-white/78 px-5 py-5">
+      <p className="eyebrow mb-2">{label}</p>
+      <p className="text-3xl font-semibold text-[var(--forest)]">{value}</p>
+      <p className="mt-2 text-sm text-[var(--muted)]">{detail}</p>
+    </div>
+  );
+}
+
+function RosterAttentionBadge({ record }: { record: CrmRosterRecord }) {
+  if (!record.needsAttention) {
+    return (
+      <span className="inline-flex rounded-full border border-[rgba(32,68,58,0.16)] bg-[rgba(32,68,58,0.08)] px-3 py-1 text-xs font-semibold uppercase tracking-[0.16em] text-[var(--forest)]">
+        Ready
+      </span>
+    );
+  }
+
+  return (
+    <span className="inline-flex rounded-full border border-[rgba(164,61,47,0.2)] bg-[rgba(164,61,47,0.1)] px-3 py-1 text-xs font-semibold uppercase tracking-[0.16em] text-[var(--accent-strong)]">
+      Needs follow-up
+    </span>
+  );
 }
 
 function RelationshipSummary({ family }: { family: CrmFamily }) {
@@ -738,6 +834,8 @@ export async function CrmSectionContent({
       return <DivisionsClassesSection searchParams={searchParams} />;
     case "registration-cycles":
       return <RegistrationCyclesSection searchParams={searchParams} />;
+    case "exports":
+      return <ExportsSection searchParams={searchParams} />;
     default:
       return null;
   }
@@ -1099,6 +1197,261 @@ async function RegistrationCyclesSection({
           ))
         )}
       </div>
+    </section>
+  );
+}
+
+async function ExportsSection({ searchParams }: { searchParams: SectionSearchParams }) {
+  const [cycles, divisions, classGroups] = await Promise.all([
+    listRegistrationCyclesForAdmin(),
+    listDivisionLevelsForAdmin(),
+    listClassGroupsForAdmin(),
+  ]);
+  const rawFilters = parseCrmRosterFilters({
+    attention: getSearchParamValue(searchParams.attention) ?? null,
+    classGroupId: getSearchParamValue(searchParams.classGroupId) ?? null,
+    cycleId: getSearchParamValue(searchParams.cycleId) ?? null,
+    divisionId: getSearchParamValue(searchParams.divisionId) ?? null,
+    registrationStatus: getSearchParamValue(searchParams.registrationStatus) ?? null,
+    team: getSearchParamValue(searchParams.team) ?? null,
+  });
+  const filters = applyDefaultRosterCycle(rawFilters, cycles);
+  const records = await listRosterRecordsForAdmin(filters);
+  const exportQuery = buildRosterQueryString(filters);
+  const needsAttentionCount = records.filter((record) => record.needsAttention).length;
+  const missingPlacementCount = records.filter(
+    (record) => !record.divisionId || !record.classGroupId,
+  ).length;
+  const cycleWasDefaulted = !rawFilters.cycleId && Boolean(filters.cycleId);
+
+  return (
+    <section className="space-y-6">
+      <NoticeBanner {...searchParams} />
+      <SectionIntro
+        eyebrow="Rosters / Exports"
+        title="Answer placement and follow-up questions from one filtered roster."
+        description="Leaders can scope the roster by cycle, division, class, team, and registration status, then export the same structured view back into a spreadsheet when downstream chapter workflows still need CSV."
+      />
+
+      <div className="panel rounded-[1.75rem] px-5 py-6">
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div>
+            <p className="eyebrow mb-3">Roster filters</p>
+            <p className="max-w-3xl text-sm text-[var(--muted)]">
+              Start from the active cycle by default, then narrow the roster until the table answers the exact class-placement or follow-up question in front of you.
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-3">
+            <Link
+              className="button-primary"
+              href={exportQuery ? `/admin/exports/download?${exportQuery}` : "/admin/exports/download"}
+            >
+              Download CSV
+            </Link>
+            <Link
+              className="rounded-full border border-[var(--line)] px-4 py-3 text-sm font-semibold text-[var(--foreground)] transition hover:border-[rgba(164,61,47,0.38)] hover:text-[var(--accent)]"
+              href="/admin/exports"
+            >
+              Clear filters
+            </Link>
+          </div>
+        </div>
+
+        <form action="/admin/exports" className="mt-6 grid gap-4 xl:grid-cols-[1.1fr_1fr_1fr]">
+          <Field label="Registration cycle / year">
+            <Select defaultValue={filters.cycleId ?? ""} name="cycleId">
+              <option value="">All cycles</option>
+              {cycles.map((cycle) => (
+                <option key={cycle.id} value={cycle.id}>
+                  {cycle.schoolYearLabel} • {cycle.name}
+                </option>
+              ))}
+            </Select>
+          </Field>
+
+          <Field label="Division">
+            <Select defaultValue={filters.divisionId ?? ""} name="divisionId">
+              <option value="">All divisions</option>
+              {divisions.map((division) => (
+                <option key={division.id} value={division.id}>
+                  {division.code} • {division.label}
+                </option>
+              ))}
+            </Select>
+          </Field>
+
+          <Field label="Class">
+            <Select defaultValue={filters.classGroupId ?? ""} name="classGroupId">
+              <option value="">All classes</option>
+              {classGroups.map((classGroup) => (
+                <option key={classGroup.id} value={classGroup.id}>
+                  {classGroup.name}
+                </option>
+              ))}
+            </Select>
+          </Field>
+
+          <Field label="Team" hint="Partial match against the per-registration team name.">
+            <TextInput defaultValue={filters.team ?? ""} name="team" placeholder="Blue Team / Team 1" />
+          </Field>
+
+          <Field label="Registration status">
+            <Select defaultValue={filters.registrationStatus ?? ""} name="registrationStatus">
+              <option value="">All statuses</option>
+              {CRM_REGISTRATION_STATUSES.map((status) => (
+                <option key={status} value={status}>
+                  {formatCrmEnumLabel(status)}
+                </option>
+              ))}
+            </Select>
+          </Field>
+
+          <Field label="Attention state">
+            <Select defaultValue={filters.attention} name="attention">
+              {CRM_ROSTER_ATTENTION_FILTERS.map((attention) => (
+                <option key={attention} value={attention}>
+                  {attention === "all"
+                    ? "All records"
+                    : attention === "needs_attention"
+                      ? "Needs follow-up"
+                      : "Ready records"}
+                </option>
+              ))}
+            </Select>
+          </Field>
+
+          <div className="xl:col-span-3 flex flex-wrap gap-3">
+            <button className="button-primary" type="submit">
+              Apply filters
+            </button>
+            {cycleWasDefaulted ? (
+              <p className="rounded-full border border-[rgba(32,68,58,0.12)] bg-[rgba(32,68,58,0.08)] px-4 py-3 text-sm text-[var(--forest)]">
+                Defaulting to the active cycle: {getRosterCycleLabel(filters.cycleId, cycles)}.
+              </p>
+            ) : null}
+          </div>
+        </form>
+      </div>
+
+      <div className="grid gap-4 md:grid-cols-3">
+        <SummaryCard
+          detail={getRosterCycleLabel(filters.cycleId, cycles)}
+          label="Records in view"
+          value={String(records.length)}
+        />
+        <SummaryCard
+          detail="Draft, missing-information, placement gaps, and certificate gaps are counted here."
+          label="Need follow-up"
+          value={String(needsAttentionCount)}
+        />
+        <SummaryCard
+          detail="Records without a division or class assignment still need placement work."
+          label="Missing placement"
+          value={String(missingPlacementCount)}
+        />
+      </div>
+
+      {records.length === 0 ? (
+        <EmptyState
+          title="No roster records match this filter set"
+          description="Broaden the cycle, division, class, status, or attention filters to see more registrations."
+        />
+      ) : (
+        <div className="panel rounded-[1.75rem] px-5 py-6">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <p className="eyebrow mb-2">Filtered roster</p>
+              <h3 className="text-2xl font-semibold text-[var(--forest)]">Structured roster view</h3>
+            </div>
+            <p className="text-sm text-[var(--muted)]">
+              Export uses this exact filtered dataset, not manual copy-paste.
+            </p>
+          </div>
+
+          <div className="mt-5 overflow-x-auto">
+            <table className="min-w-full border-separate border-spacing-y-3 text-left text-sm">
+              <thead>
+                <tr className="text-xs uppercase tracking-[0.16em] text-[var(--muted)]">
+                  <th className="px-4 py-2 font-semibold">Student</th>
+                  <th className="px-4 py-2 font-semibold">Cycle</th>
+                  <th className="px-4 py-2 font-semibold">Placement</th>
+                  <th className="px-4 py-2 font-semibold">Status</th>
+                  <th className="px-4 py-2 font-semibold">Follow-up</th>
+                </tr>
+              </thead>
+              <tbody>
+                {records.map((record) => (
+                  <tr
+                    key={record.id}
+                    className={
+                      record.needsAttention
+                        ? "bg-[rgba(164,61,47,0.06)]"
+                        : "bg-white/74"
+                    }
+                  >
+                    <td className="rounded-l-[1.25rem] border-y border-l border-[var(--line)] px-4 py-4 align-top">
+                      <p className="font-semibold text-[var(--forest)]">{record.studentName}</p>
+                      <p className="mt-1 text-[var(--muted)]">
+                        {record.familyName ?? "No household linked"}
+                      </p>
+                      <div className="mt-3 text-xs text-[var(--muted)]">
+                        <p>{record.primaryGuardianName ?? "No primary guardian recorded"}</p>
+                        {record.primaryGuardianPhone ? <p>{record.primaryGuardianPhone}</p> : null}
+                        {record.primaryGuardianEmail ? <p>{record.primaryGuardianEmail}</p> : null}
+                      </div>
+                    </td>
+                    <td className="border-y border-[var(--line)] px-4 py-4 align-top">
+                      <p className="font-semibold text-[var(--foreground)]">
+                        {record.cycleSchoolYearLabel}
+                      </p>
+                      <p className="mt-1 text-[var(--muted)]">{record.cycleName}</p>
+                    </td>
+                    <td className="border-y border-[var(--line)] px-4 py-4 align-top">
+                      <p className="font-semibold text-[var(--foreground)]">
+                        {record.divisionCode
+                          ? `${record.divisionCode} • ${record.divisionLabel ?? "Division"}`
+                          : "Division missing"}
+                      </p>
+                      <p className="mt-1 text-[var(--muted)]">
+                        {record.classGroupName ?? "Class missing"}
+                        {record.teamName ? ` • ${record.teamName}` : ""}
+                      </p>
+                    </td>
+                    <td className="border-y border-[var(--line)] px-4 py-4 align-top">
+                      <p className="font-semibold text-[var(--foreground)]">
+                        {formatCrmEnumLabel(record.registrationStatus)}
+                      </p>
+                      <p className="mt-1 text-[var(--muted)]">
+                        Certificate: {formatCrmEnumLabel(record.certificateStatus)}
+                      </p>
+                      <p className="mt-1 text-[var(--muted)]">
+                        Parent notified: {record.parentNotifiedStatus ?? "Not set"}
+                      </p>
+                      <p className="mt-1 text-[var(--muted)]">
+                        Paid: {formatMoney(record.totalPaid)}
+                      </p>
+                    </td>
+                    <td className="rounded-r-[1.25rem] border-y border-r border-[var(--line)] px-4 py-4 align-top">
+                      <RosterAttentionBadge record={record} />
+                      {record.needsAttention ? (
+                        <ul className="mt-3 space-y-2 text-xs text-[var(--muted)]">
+                          {record.attentionReasons.map((reason) => (
+                            <li key={reason}>{reason}</li>
+                          ))}
+                        </ul>
+                      ) : (
+                        <p className="mt-3 text-xs text-[var(--muted)]">
+                          Placement and registration status are clear enough for standard roster use.
+                        </p>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
     </section>
   );
 }

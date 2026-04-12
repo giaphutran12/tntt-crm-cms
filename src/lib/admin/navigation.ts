@@ -95,8 +95,8 @@ export const ADMIN_SECTIONS: AdminSection[] = [
   {
     slug: "exports",
     href: "/admin/exports",
-    label: "Exports",
-    description: "Produce roster and registration exports for downstream chapter workflows.",
+    label: "Rosters / Exports",
+    description: "Filter operational rosters and export structured registration data for spreadsheet fallback.",
     minimumRole: "operations",
     group: "crm",
   },

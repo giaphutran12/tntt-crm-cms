@@ -31,6 +31,13 @@ export const CRM_CERTIFICATE_STATUSES = [
 ] as const;
 export type CrmCertificateStatus = (typeof CRM_CERTIFICATE_STATUSES)[number];
 
+export const CRM_ROSTER_ATTENTION_FILTERS = [
+  "all",
+  "needs_attention",
+  "ready",
+] as const;
+export type CrmRosterAttentionFilter = (typeof CRM_ROSTER_ATTENTION_FILTERS)[number];
+
 export type CrmGuardian = {
   createdAt: string;
   email: string | null;
@@ -168,6 +175,43 @@ export type CrmStudentRegistration = {
   uniformScarfNeeded: boolean | null;
   uniformShirtSize: string | null;
   updatedAt: string;
+};
+
+export type CrmRosterFilters = {
+  attention: CrmRosterAttentionFilter;
+  classGroupId: string | null;
+  cycleId: string | null;
+  divisionId: string | null;
+  registrationStatus: CrmRegistrationStatus | null;
+  team: string | null;
+};
+
+export type CrmRosterRecord = {
+  attentionReasons: string[];
+  certificateStatus: CrmCertificateStatus;
+  classGroupId: string | null;
+  classGroupName: string | null;
+  cycleId: string;
+  cycleName: string;
+  cycleSchoolYearLabel: string;
+  divisionCode: string | null;
+  divisionId: string | null;
+  divisionLabel: string | null;
+  familyId: string | null;
+  familyName: string | null;
+  id: string;
+  intakeEnteredAt: string | null;
+  needsAttention: boolean;
+  parentNotifiedStatus: string | null;
+  primaryGuardianEmail: string | null;
+  primaryGuardianName: string | null;
+  primaryGuardianPhone: string | null;
+  registrationStatus: CrmRegistrationStatus;
+  studentId: string;
+  studentName: string;
+  teamName: string | null;
+  totalCharged: string | null;
+  totalPaid: string | null;
 };
 
 type CrmGuardianRow = {
@@ -315,6 +359,32 @@ type CrmRegistrationAttachmentRow = {
   storage_path: string | null;
   student_registration_id: string;
   updated_at: string;
+};
+
+type CrmRosterRow = {
+  certificate_status: CrmCertificateStatus;
+  class_group_id: string | null;
+  class_group_name: string | null;
+  cycle_id: string;
+  cycle_name: string;
+  cycle_school_year_label: string;
+  division_code: string | null;
+  division_id: string | null;
+  division_label: string | null;
+  family_id: string | null;
+  family_name: string | null;
+  id: string;
+  intake_entered_at: string | null;
+  parent_notified_status: string | null;
+  primary_guardian_email: string | null;
+  primary_guardian_name: string | null;
+  primary_guardian_phone: string | null;
+  registration_status: CrmRegistrationStatus;
+  student_id: string;
+  student_name: string;
+  team_name: string | null;
+  total_charged: string | null;
+  total_paid: string | null;
 };
 
 function mapGuardian(row: CrmGuardianRow): CrmGuardian {
@@ -495,6 +565,240 @@ function mapStudentRegistration(
     uniformShirtSize: row.uniform_shirt_size,
     updatedAt: row.updated_at,
   };
+}
+
+function normalizeOptionalFilterValue(value: string | null | undefined) {
+  if (!value) {
+    return null;
+  }
+
+  const normalized = value.trim();
+  return normalized.length > 0 ? normalized : null;
+}
+
+function isRegistrationStatus(value: string | null): value is CrmRegistrationStatus {
+  return value ? CRM_REGISTRATION_STATUSES.includes(value as CrmRegistrationStatus) : false;
+}
+
+function isRosterAttentionFilter(value: string | null): value is CrmRosterAttentionFilter {
+  return value
+    ? CRM_ROSTER_ATTENTION_FILTERS.includes(value as CrmRosterAttentionFilter)
+    : false;
+}
+
+function getRosterAttentionReasons(record: {
+  certificateStatus: CrmCertificateStatus;
+  classGroupId: string | null;
+  divisionId: string | null;
+  registrationStatus: CrmRegistrationStatus;
+}) {
+  const reasons: string[] = [];
+
+  switch (record.registrationStatus) {
+    case "draft":
+      reasons.push("Draft registration still needs full processing.");
+      break;
+    case "paper_form_received":
+      reasons.push("Paper form is received but data entry is not finished.");
+      break;
+    case "missing_information":
+      reasons.push("Registration is missing required information.");
+      break;
+    case "follow_up_required":
+      reasons.push("Registration is explicitly marked for follow-up.");
+      break;
+    default:
+      break;
+  }
+
+  if (!record.divisionId) {
+    reasons.push("Division placement is still missing.");
+  }
+
+  if (!record.classGroupId) {
+    reasons.push("Class placement is still missing.");
+  }
+
+  if (record.certificateStatus === "missing") {
+    reasons.push("Certificate details are still missing.");
+  } else if (record.certificateStatus === "partial") {
+    reasons.push("Certificate details are only partially recorded.");
+  }
+
+  return reasons;
+}
+
+function mapRosterRecord(row: CrmRosterRow): CrmRosterRecord {
+  const baseRecord = {
+    certificateStatus: row.certificate_status,
+    classGroupId: row.class_group_id,
+    classGroupName: row.class_group_name,
+    cycleId: row.cycle_id,
+    cycleName: row.cycle_name,
+    cycleSchoolYearLabel: row.cycle_school_year_label,
+    divisionCode: row.division_code,
+    divisionId: row.division_id,
+    divisionLabel: row.division_label,
+    familyId: row.family_id,
+    familyName: row.family_name,
+    id: row.id,
+    intakeEnteredAt: row.intake_entered_at,
+    parentNotifiedStatus: row.parent_notified_status,
+    primaryGuardianEmail: row.primary_guardian_email,
+    primaryGuardianName: row.primary_guardian_name,
+    primaryGuardianPhone: row.primary_guardian_phone,
+    registrationStatus: row.registration_status,
+    studentId: row.student_id,
+    studentName: row.student_name,
+    teamName: row.team_name,
+    totalCharged: row.total_charged,
+    totalPaid: row.total_paid,
+  };
+  const attentionReasons = getRosterAttentionReasons(baseRecord);
+
+  return {
+    ...baseRecord,
+    attentionReasons,
+    needsAttention: attentionReasons.length > 0,
+  };
+}
+
+function applyRosterAttentionFilter(
+  records: CrmRosterRecord[],
+  attention: CrmRosterAttentionFilter,
+) {
+  if (attention === "all") {
+    return records;
+  }
+
+  return records.filter((record) =>
+    attention === "needs_attention" ? record.needsAttention : !record.needsAttention,
+  );
+}
+
+function toCsvValue(value: string | null | number | boolean) {
+  const stringValue = value == null ? "" : String(value);
+
+  if (!/[",\n]/.test(stringValue)) {
+    return stringValue;
+  }
+
+  return `"${stringValue.replaceAll("\"", "\"\"")}"`;
+}
+
+function toMoneyNumber(value: string | null) {
+  if (!value) {
+    return null;
+  }
+
+  const parsed = Number.parseFloat(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+export function formatCrmEnumLabel(value: string) {
+  return value.replaceAll("_", " ");
+}
+
+export function parseCrmRosterFilters(input: {
+  attention?: string | null;
+  classGroupId?: string | null;
+  cycleId?: string | null;
+  divisionId?: string | null;
+  registrationStatus?: string | null;
+  team?: string | null;
+}): CrmRosterFilters {
+  const registrationStatus = normalizeOptionalFilterValue(input.registrationStatus);
+  const attention = normalizeOptionalFilterValue(input.attention);
+
+  return {
+    attention: isRosterAttentionFilter(attention) ? attention : "all",
+    classGroupId: normalizeOptionalFilterValue(input.classGroupId),
+    cycleId: normalizeOptionalFilterValue(input.cycleId),
+    divisionId: normalizeOptionalFilterValue(input.divisionId),
+    registrationStatus: isRegistrationStatus(registrationStatus)
+      ? registrationStatus
+      : null,
+    team: normalizeOptionalFilterValue(input.team),
+  };
+}
+
+export function applyDefaultRosterCycle(
+  filters: CrmRosterFilters,
+  cycles: CrmRegistrationCycle[],
+) {
+  if (filters.cycleId) {
+    return filters;
+  }
+
+  const activeCycle = cycles.find((cycle) => cycle.isActive);
+
+  if (!activeCycle) {
+    return filters;
+  }
+
+  return {
+    ...filters,
+    cycleId: activeCycle.id,
+  };
+}
+
+export function serializeRosterRecordsToCsv(records: CrmRosterRecord[]) {
+  const headers = [
+    "School Year",
+    "Cycle",
+    "Division Code",
+    "Division",
+    "Class",
+    "Team",
+    "Registration Status",
+    "Needs Attention",
+    "Attention Reasons",
+    "Student",
+    "Household",
+    "Primary Guardian",
+    "Guardian Phone",
+    "Guardian Email",
+    "Parent Notified",
+    "Certificate Status",
+    "Intake Entered At",
+    "Charged",
+    "Paid",
+    "Balance Due",
+  ];
+
+  const rows = records.map((record) => {
+    const charged = toMoneyNumber(record.totalCharged);
+    const paid = toMoneyNumber(record.totalPaid);
+    const balanceDue =
+      charged != null && paid != null ? (charged - paid).toFixed(2) : "";
+
+    return [
+      record.cycleSchoolYearLabel,
+      record.cycleName,
+      record.divisionCode ?? "",
+      record.divisionLabel ?? "",
+      record.classGroupName ?? "",
+      record.teamName ?? "",
+      formatCrmEnumLabel(record.registrationStatus),
+      record.needsAttention ? "yes" : "no",
+      record.attentionReasons.join(" | "),
+      record.studentName,
+      record.familyName ?? "",
+      record.primaryGuardianName ?? "",
+      record.primaryGuardianPhone ?? "",
+      record.primaryGuardianEmail ?? "",
+      record.parentNotifiedStatus ?? "",
+      formatCrmEnumLabel(record.certificateStatus),
+      record.intakeEnteredAt ?? "",
+      record.totalCharged ?? "",
+      record.totalPaid ?? "",
+      balanceDue,
+    ]
+      .map(toCsvValue)
+      .join(",");
+  });
+
+  return [headers.map(toCsvValue).join(","), ...rows].join("\n");
 }
 
 export async function listFamiliesForAdmin() {
@@ -788,4 +1092,84 @@ export async function listStudentRegistrationsForAdmin() {
   return registrationResult.rows.map((row) =>
     mapStudentRegistration(row, attachmentsByRegistration.get(row.id) ?? []),
   );
+}
+
+export async function listRosterRecordsForAdmin(filters: CrmRosterFilters) {
+  const result = await query<CrmRosterRow>(
+    `
+      select
+        registration.id::text as id,
+        registration.student_id::text as student_id,
+        case
+          when student.preferred_name is not null and student.preferred_name <> ''
+            then student.preferred_name || ' (' || student.legal_first_name || ' ' || student.legal_last_name || ')'
+          else student.legal_first_name || ' ' || student.legal_last_name
+        end as student_name,
+        registration.family_id::text as family_id,
+        family.household_name as family_name,
+        registration.registration_cycle_id::text as cycle_id,
+        cycle.name as cycle_name,
+        cycle.school_year_label as cycle_school_year_label,
+        registration.division_level_id::text as division_id,
+        division.code as division_code,
+        division.label as division_label,
+        registration.class_group_id::text as class_group_id,
+        class_group.name as class_group_name,
+        registration.team_name,
+        registration.registration_status::text as registration_status,
+        registration.certificate_status::text as certificate_status,
+        registration.parent_notified_status,
+        registration.intake_entered_at::text as intake_entered_at,
+        registration.total_charged::text as total_charged,
+        registration.total_paid::text as total_paid,
+        primary_guardian.full_name as primary_guardian_name,
+        primary_guardian.phone as primary_guardian_phone,
+        primary_guardian.email as primary_guardian_email
+      from public.crm_student_registrations registration
+      inner join public.crm_students student
+        on student.id = registration.student_id
+      inner join public.crm_registration_cycles cycle
+        on cycle.id = registration.registration_cycle_id
+      left join public.crm_families family
+        on family.id = registration.family_id
+      left join public.crm_division_levels division
+        on division.id = registration.division_level_id
+      left join public.crm_class_groups class_group
+        on class_group.id = registration.class_group_id
+      left join lateral (
+        select
+          guardian.full_name,
+          guardian.phone,
+          guardian.email
+        from public.crm_guardians guardian
+        where guardian.family_id = registration.family_id
+        order by guardian.is_primary_contact desc, guardian.sort_order asc, guardian.full_name asc
+        limit 1
+      ) primary_guardian on true
+      where ($1::uuid is null or registration.registration_cycle_id = $1::uuid)
+        and ($2::uuid is null or registration.division_level_id = $2::uuid)
+        and ($3::uuid is null or registration.class_group_id = $3::uuid)
+        and (
+          $4::public.crm_registration_status is null
+          or registration.registration_status = $4::public.crm_registration_status
+        )
+        and ($5::text is null or registration.team_name ilike '%' || $5 || '%')
+      order by
+        cycle.school_year_label desc,
+        division.sort_order asc nulls last,
+        class_group.sort_order asc nulls last,
+        registration.team_name asc nulls last,
+        student.legal_last_name asc,
+        student.legal_first_name asc
+    `,
+    [
+      filters.cycleId,
+      filters.divisionId,
+      filters.classGroupId,
+      filters.registrationStatus,
+      filters.team,
+    ],
+  );
+
+  return applyRosterAttentionFilter(result.rows.map(mapRosterRecord), filters.attention);
 }

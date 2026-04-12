@@ -35,23 +35,32 @@ import {
   updateMediaAssetAction,
 } from "@/app/admin/actions";
 
-type SectionSearchParams = {
-  error?: string;
-  notice?: string;
+type SearchParamValue = string | string[] | undefined;
+
+type SectionSearchParams = Record<string, SearchParamValue> & {
+  error?: SearchParamValue;
+  notice?: SearchParamValue;
 };
 
+function getSearchParamValue(value: SearchParamValue) {
+  return Array.isArray(value) ? value[0] : value;
+}
+
 function NoticeBanner({ error, notice }: SectionSearchParams) {
-  if (!error && !notice) {
+  const resolvedError = getSearchParamValue(error);
+  const resolvedNotice = getSearchParamValue(notice);
+
+  if (!resolvedError && !resolvedNotice) {
     return null;
   }
 
-  const tone = error
+  const tone = resolvedError
     ? "border-[rgba(164,61,47,0.28)] bg-[rgba(164,61,47,0.08)] text-[var(--accent-strong)]"
     : "border-[rgba(32,68,58,0.18)] bg-[rgba(32,68,58,0.08)] text-[var(--forest)]";
 
   return (
     <div className={`rounded-[1.5rem] border px-5 py-4 text-sm font-medium ${tone}`}>
-      {error ?? notice}
+      {resolvedError ?? resolvedNotice}
     </div>
   );
 }

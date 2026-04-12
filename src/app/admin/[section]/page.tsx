@@ -9,10 +9,7 @@ type AdminSectionPageProps = {
   params: Promise<{
     section: string;
   }>;
-  searchParams: Promise<{
-    error?: string;
-    notice?: string;
-  }>;
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
 };
 
 export default async function AdminSectionPage({
