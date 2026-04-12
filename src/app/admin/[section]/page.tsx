@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
 import { AccessDeniedPanel } from "@/components/admin/access-panels";
 import { CmsSectionContent } from "@/components/admin/cms";
+import { CrmSectionContent } from "@/components/admin/crm";
 import { getAdminSection } from "@/lib/admin/navigation";
 import { requireMinimumRole } from "@/lib/auth/session";
 
@@ -51,6 +52,15 @@ export default async function AdminSectionPage({
     );
   }
 
+  if (adminSection.group === "crm") {
+    return (
+      <CrmSectionContent
+        searchParams={resolvedSearchParams}
+        section={adminSection.slug}
+      />
+    );
+  }
+
   return (
     <section className="panel rounded-[2rem] px-6 py-8 md:px-8">
       <p className="eyebrow mb-3">{adminSection.label}</p>
@@ -78,11 +88,7 @@ export default async function AdminSectionPage({
         <div className="rounded-[1.5rem] border border-[var(--line)] bg-white/80 p-5">
           <p className="eyebrow mb-2">Boundary</p>
           <p className="text-lg font-semibold text-[var(--forest)]">
-            {adminSection.group === "crm"
-                ? "Sensitive CRM"
-                : adminSection.group === "overview"
-                  ? "Overview"
-                  : "Administration"}
+            {adminSection.group === "overview" ? "Overview" : "Administration"}
           </p>
           <p className="mt-2 text-sm text-[var(--muted)]">
             Public publishing and child-data access intentionally stay on different
