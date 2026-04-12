@@ -66,12 +66,7 @@ async function getRoleFromDatabase(userId: string) {
 }
 
 function getRoleFromUser(user: User): AppRole {
-  const metadataCandidates = [
-    user.app_metadata.role,
-    user.app_metadata.app_role,
-    user.user_metadata.role,
-    user.user_metadata.app_role,
-  ];
+  const metadataCandidates = [user.app_metadata.role, user.app_metadata.app_role];
 
   for (const candidate of metadataCandidates) {
     const normalizedRole = normalizeAppRole(

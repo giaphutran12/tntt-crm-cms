@@ -36,6 +36,7 @@ export default async function SignInPage({ searchParams }: SignInPageProps) {
   }
 
   const message = getMessage(params.error);
+  const registered = params.registered === "1";
   const signedOut = params.signedOut === "1";
   const supabaseConfigured = authAvailability.status === "available";
 
@@ -55,6 +56,12 @@ export default async function SignInPage({ searchParams }: SignInPageProps) {
         {signedOut ? (
           <div className="mt-6 rounded-[1.25rem] border border-[rgba(32,68,58,0.18)] bg-[rgba(32,68,58,0.08)] p-4 text-sm text-[var(--forest)]">
             You have been signed out.
+          </div>
+        ) : null}
+
+        {registered ? (
+          <div className="mt-6 rounded-[1.25rem] border border-[rgba(32,68,58,0.18)] bg-[rgba(32,68,58,0.08)] p-4 text-sm text-[var(--forest)]">
+            The staff account is ready. Sign in to continue to the admin area.
           </div>
         ) : null}
 
@@ -114,7 +121,10 @@ export default async function SignInPage({ searchParams }: SignInPageProps) {
         </div>
 
         <div className="mt-6 flex flex-wrap gap-3">
-          <Link className="button-secondary" href="/auth/sign-up">
+          <Link
+            className="button-secondary"
+            href={`/auth/sign-up?next=${encodeURIComponent(nextPath)}`}
+          >
             Private sign-up gate
           </Link>
           <Link className="button-secondary" href="/">

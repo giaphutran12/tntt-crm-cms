@@ -94,11 +94,11 @@ If you are pointing at a hosted project instead, push the checked-in migrations 
 
 ## Auth direction
 
-This scaffold does **not** expose public signup. The intended V1 flow is:
+This scaffold does **not** expose public signup. The implemented V1 flow is:
 
 1. Share a private internal sign-up URL with intended staff only.
 2. Require a shared chapter access password before revealing the real sign-up form.
 3. Complete Supabase email/password sign-up.
-4. Provision the new account as `Editor` by default in the app database.
+4. Provision the new account as `Editor` by default in the app database and auth metadata.
 
-The current codebase includes the password-gate placeholder and the supporting env/config hooks. Real staff auth UI and authorization rules should land in later tickets.
+Staff sign-in uses Supabase email/password, preserves safe `/admin` next-path redirects, and keeps public visitors outside the protected admin routes.

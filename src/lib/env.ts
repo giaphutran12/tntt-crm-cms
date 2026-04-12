@@ -5,6 +5,7 @@ const optionalServerEnvSchema = z.object({
   NEXT_PUBLIC_SITE_URL: z.string().url().optional().or(z.literal("")),
   NEXT_PUBLIC_SUPABASE_URL: z.string().url().optional().or(z.literal("")),
   NEXT_PUBLIC_SUPABASE_ANON_KEY: z.string().min(1).optional().or(z.literal("")),
+  NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: z.string().min(1).optional().or(z.literal("")),
   SUPABASE_SERVICE_ROLE_KEY: z.string().min(1).optional().or(z.literal("")),
   DATABASE_URL: z.string().min(1).optional().or(z.literal("")),
   STAFF_SIGNUP_SHARED_PASSWORD: z.string().min(1).optional().or(z.literal("")),
@@ -22,6 +23,8 @@ export function getOptionalServerEnv(): OptionalServerEnv {
     NEXT_PUBLIC_SITE_URL: process.env.NEXT_PUBLIC_SITE_URL,
     NEXT_PUBLIC_SUPABASE_URL: process.env.NEXT_PUBLIC_SUPABASE_URL,
     NEXT_PUBLIC_SUPABASE_ANON_KEY: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
+    NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY:
+      process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY,
     SUPABASE_SERVICE_ROLE_KEY: process.env.SUPABASE_SERVICE_ROLE_KEY,
     DATABASE_URL: process.env.DATABASE_URL,
     STAFF_SIGNUP_SHARED_PASSWORD: process.env.STAFF_SIGNUP_SHARED_PASSWORD,
@@ -34,7 +37,7 @@ export function getOptionalServerEnv(): OptionalServerEnv {
 export function isSupabaseConfigured() {
   const env = getOptionalServerEnv();
 
-  return Boolean(env.NEXT_PUBLIC_SUPABASE_URL && env.NEXT_PUBLIC_SUPABASE_ANON_KEY);
+  return Boolean(env.NEXT_PUBLIC_SUPABASE_URL && getSupabasePublishableKey(env));
 }
 
 export function isDatabaseConfigured() {
@@ -66,13 +69,23 @@ export function getRequiredSupabaseUrl() {
 }
 
 export function getRequiredSupabaseAnonKey() {
-  const anonKey = getOptionalServerEnv().NEXT_PUBLIC_SUPABASE_ANON_KEY;
+  return getRequiredSupabasePublishableKey();
+}
 
-  if (!anonKey) {
-    throw new Error("NEXT_PUBLIC_SUPABASE_ANON_KEY is required to create a Supabase client.");
+export function hasSupabaseServiceRoleKey() {
+  return Boolean(getOptionalServerEnv().SUPABASE_SERVICE_ROLE_KEY);
+}
+
+export function getRequiredSupabasePublishableKey() {
+  const publishableKey = getSupabasePublishableKey(getOptionalServerEnv());
+
+  if (!publishableKey) {
+    throw new Error(
+      "NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY or NEXT_PUBLIC_SUPABASE_ANON_KEY is required to create a Supabase client.",
+    );
   }
 
-  return anonKey;
+  return publishableKey;
 }
 
 export function getRequiredSupabaseServiceRoleKey() {
@@ -83,4 +96,8 @@ export function getRequiredSupabaseServiceRoleKey() {
   }
 
   return serviceRoleKey;
+}
+
+function getSupabasePublishableKey(env: OptionalServerEnv) {
+  return env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY || env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 }
