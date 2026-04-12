@@ -53,6 +53,16 @@ pnpm dev
 
 The public shell lives at `/`. Staff auth lives at `/auth/sign-in` and `/auth/sign-up`, and the admin CMS shell lives at `/admin`.
 
+## Representative demo data
+
+Running the checked-in migrations also seeds representative local-development data for ticket validation:
+
+- published homepage, about, contact, announcement, schedule, and resource records
+- public demo attachments under [`public/demo`](./public/demo)
+- sample family, guardian, student, and yearly registration records for roster/export QA
+
+If you are using the Supabase CLI locally, `supabase db reset` is the fastest way to apply the schema plus demo dataset in one pass.
+
 ## Validation commands
 
 ```bash
@@ -71,6 +81,7 @@ SQL migrations are checked in under [`supabase/migrations`](./supabase/migration
 - a trigger that provisions every new auth account as `editor` by default
 - the `public-media` and `private-registration-files` storage buckets
 - CMS tables for announcements, managed pages, schedule items, resources, and uploaded media assets
+- representative demo CMS and CRM records for local review
 
 If you are using the Supabase CLI locally, a typical bootstrap flow is:
 

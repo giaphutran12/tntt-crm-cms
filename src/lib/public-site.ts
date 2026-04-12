@@ -46,7 +46,7 @@ export const chapterProfile = {
   location: "Surrey, British Columbia",
   parish: "Our Lady of La Vang Vietnamese community at St. Matthew's Parish",
   mission:
-    "A chapter website and family information hub for prayer, formation, announcements, and chapter updates.",
+    "A chapter website and family information hub for announcements, schedules, forms, and faith-formation updates.",
   bilingualNote:
     "The public shell is English-first today, with content structures prepared for future English and Vietnamese publishing.",
 };
@@ -106,19 +106,19 @@ export const familyNeeds = [
   {
     title: "Announcements",
     description:
-      "Recent updates, event reminders, and chapter-wide notices will surface here first once CMS publishing is online.",
+      "Recent updates, event reminders, and chapter-wide notices surface here first so families do not have to reconstruct the latest plan from email threads.",
     href: "/announcements",
   },
   {
     title: "Schedule",
     description:
-      "Parents will be able to confirm the weekly chapter rhythm and special dates without digging through old email threads.",
+      "Parents can confirm the weekly chapter rhythm and major formation dates without digging through old messages.",
     href: "/schedule",
   },
   {
     title: "Forms & Resources",
     description:
-      "Registration packets, retreat documents, and evergreen chapter resources are scaffolded for future uploads.",
+      "Registration packets, retreat checklists, and evergreen chapter resources stay in one predictable place.",
     href: "/forms-resources",
   },
 ];
@@ -166,123 +166,123 @@ export const divisionOverview = [
 
 export const announcementPreviews: AnnouncementPreview[] = [
   {
-    slug: "season-opening-update",
-    audience: "Parents and families",
-    publishDate: "Content scaffold",
-    status: "Awaiting chapter copy",
+    slug: "registration-packet-live",
+    audience: "Parents and guardians",
+    publishDate: "July 14, 2026",
+    status: "Representative demo content",
     title: {
-      en: "Season opening update",
-      vi: "Thông báo khai mạc năm sinh hoạt",
+      en: "2026-2027 registration packet is ready",
+      vi: "Hồ sơ ghi danh 2026-2027 đã sẵn sàng",
     },
     summary: {
-      en: "Featured homepage announcement slot reserved for the first real chapter-wide notice, with space for an attachment later.",
-      vi: "Vị trí thông báo nổi bật được giữ sẵn cho thông báo đầu mùa và tệp đính kèm sau này.",
+      en: "Families can review the representative packet, see what paperwork is expected, and use the forms page as the canonical download location.",
+      vi: "Gia đình có thể xem bộ hồ sơ mẫu, biết rõ giấy tờ cần chuẩn bị và dùng trang biểu mẫu làm nơi tải xuống chính thức.",
     },
   },
   {
-    slug: "retreat-registration-window",
-    audience: "Families preparing paperwork",
-    publishDate: "Content scaffold",
-    status: "Awaiting event details",
+    slug: "lenten-retreat-checklist",
+    audience: "Registered students and families",
+    publishDate: "March 1, 2026",
+    status: "Representative demo content",
     title: {
-      en: "Retreat registration window",
-      vi: "Thời gian ghi danh tĩnh tâm",
+      en: "Lenten retreat checklist and deadline",
+      vi: "Danh sách chuẩn bị và hạn nộp cho kỳ tĩnh tâm Mùa Chay",
     },
     summary: {
-      en: "Announcement cards are structured for title, audience, publish date, summary, and future file attachments.",
-      vi: "Thẻ thông báo đã sẵn sàng cho tiêu đề, đối tượng, ngày đăng, tóm tắt và tệp đính kèm.",
+      en: "The public announcement flow supports a parent-facing post plus one attached checklist so event prep does not stay trapped in chat history.",
+      vi: "Luồng thông báo công khai hỗ trợ một bài đăng hướng đến phụ huynh cùng tệp đính kèm để việc chuẩn bị sự kiện không bị thất lạc trong tin nhắn.",
     },
   },
   {
-    slug: "uniform-reminder",
-    audience: "Students and guardians",
-    publishDate: "Content scaffold",
-    status: "Awaiting chapter policy",
+    slug: "opening-sunday-orientation",
+    audience: "New families and returning households",
+    publishDate: "September 4, 2026",
+    status: "Representative demo content",
     title: {
-      en: "Uniform and preparation reminder",
-      vi: "Nhắc nhở đồng phục và chuẩn bị",
+      en: "Opening Sunday family orientation",
+      vi: "Định hướng gia đình cho Chúa Nhật khai giảng",
     },
     summary: {
-      en: "This slot demonstrates how shorter reminders can still live beside larger event announcements in the same collection.",
-      vi: "Mục này minh hoạ cách các nhắc nhở ngắn có thể xuất hiện cùng các thông báo sự kiện lớn hơn.",
+      en: "A shorter reminder sits beside larger notices and still gives parents the exact arrival window, room assignment, and what to bring.",
+      vi: "Một thông báo ngắn vẫn có thể đứng cạnh các thông báo lớn hơn và cho phụ huynh biết rõ giờ đến, phòng sinh hoạt và vật dụng cần mang theo.",
     },
   },
 ];
 
 export const weeklyRhythm: ScheduleItem[] = [
   {
-    label: "Weekly chapter gathering",
-    dateLabel: "Sunday rhythm",
+    label: "Sunday check-in and opening assembly",
+    dateLabel: "Most Sundays, 8:45 AM",
     note:
-      "The page is structured for a simple parent-friendly list first, with room to add richer calendar behavior later if the chapter needs it.",
+      "Families can verify the arrival window, opening prayer rhythm, and where schedule changes will be announced before a full calendar product exists.",
   },
   {
-    label: "Announcements and key reminders",
-    dateLabel: "Published as needed",
+    label: "Division classes and formation blocks",
+    dateLabel: "After assembly",
     note:
-      "Important schedule changes should surface both here and on the announcements page so families do not miss time-sensitive updates.",
+      "Use the schedule page for the stable weekly structure, then mirror any time-sensitive change in public announcements.",
   },
   {
-    label: "Major seasonal dates",
-    dateLabel: "Liturgical year milestones",
+    label: "Family follow-up and paperwork review",
+    dateLabel: "Monday to Wednesday",
     note:
-      "Retreats, registration windows, and special events can be layered in without changing the overall public IA.",
+      "This keeps form and registration questions from depending on whichever leader a family happened to message first.",
   },
 ];
 
 export const upcomingDates: ScheduleItem[] = [
   {
-    label: "Registration period",
-    dateLabel: "Placeholder for chapter-confirmed window",
-    note: "Reserved for the future registration cycle announcement and linked form packet.",
+    label: "Registration help desk",
+    dateLabel: "August 24 and August 31, 7:00 PM",
+    note: "A representative public entry for packet pickup questions, missing signature follow-up, and school-year launch reminders.",
   },
   {
-    label: "Retreat / formation event",
-    dateLabel: "Placeholder for chapter-confirmed date",
-    note: "Structured to call out deadlines, audiences, and linked downloads when live details are available.",
+    label: "Lenten retreat paperwork deadline",
+    dateLabel: "March 10, 2026",
+    note: "This is the kind of date that should appear in both the schedule and a linked announcement with the downloadable checklist.",
   },
   {
-    label: "Family information reminder",
-    dateLabel: "Placeholder for chapter-confirmed date",
-    note: "Useful for uniform notices, parent reminders, or handbook updates without exposing private student data.",
+    label: "Opening Sunday orientation",
+    dateLabel: "September 13, 2026",
+    note: "Useful for parent reminders, classroom arrival instructions, and family-facing handbooks without exposing private student data.",
   },
 ];
 
 export const resourcePreviews: ResourcePreview[] = [
   {
     title: {
-      en: "Registration packet",
-      vi: "Hồ sơ ghi danh",
+      en: "2026-2027 family registration packet",
+      vi: "Hồ sơ ghi danh gia đình 2026-2027",
     },
     audience: "Families registering students",
-    availability: "Upload pending",
+    availability: "Representative demo file available",
     description: {
-      en: "Ready for a future PDF upload, summary text, and publish window once chapter editors finalize the yearly form set.",
-      vi: "Sẵn sàng cho tệp PDF, mô tả ngắn và thời gian công bố khi bộ hồ sơ được chốt.",
+      en: "A seeded local-development file stands in for the real packet so editors can verify the public download flow before launch.",
+      vi: "Một tệp mẫu cho môi trường phát triển được dùng thay cho hồ sơ thật để ban điều hành kiểm tra luồng tải xuống công khai trước khi ra mắt.",
     },
   },
   {
     title: {
-      en: "Retreat and event forms",
-      vi: "Biểu mẫu tĩnh tâm và sự kiện",
+      en: "Retreat family checklist",
+      vi: "Danh sách chuẩn bị cho gia đình đi tĩnh tâm",
     },
     audience: "Families responding to special events",
-    availability: "Upload pending",
+    availability: "Representative demo file available",
     description: {
-      en: "The list supports seasonal files that appear and expire without changing the page design.",
-      vi: "Danh sách hỗ trợ các tệp theo mùa có thể xuất hiện rồi hết hạn mà không cần đổi giao diện.",
+      en: "Seasonal files can appear, expire, and be replaced without changing the page layout or the parent-facing information architecture.",
+      vi: "Các tệp theo mùa có thể xuất hiện, hết hạn và được thay thế mà không cần thay đổi bố cục trang hay kiến trúc thông tin dành cho phụ huynh.",
     },
   },
   {
     title: {
-      en: "Evergreen chapter resources",
-      vi: "Tài liệu chương đoàn",
+      en: "Family handbook summary",
+      vi: "Tóm tắt sổ tay gia đình",
     },
     audience: "Parents, students, and staff",
-    availability: "Structure ready",
+    availability: "Representative external link",
     description: {
-      en: "Space for handbooks, ministry guides, or orientation material after the chapter decides what should stay public year-round.",
-      vi: "Không gian cho sổ tay, hướng dẫn và tài liệu định hướng khi chương đoàn xác định nội dung công khai lâu dài.",
+      en: "Evergreen guidance can live beside seasonal packets so the public site becomes the obvious place to re-check chapter expectations.",
+      vi: "Hướng dẫn dài hạn có thể nằm cạnh các bộ hồ sơ theo mùa để trang công khai trở thành nơi dễ nhớ nhất khi gia đình cần xem lại thông tin.",
     },
   },
 ];
@@ -293,24 +293,24 @@ export const contactCards: ContactCard[] = [
     description: `${chapterProfile.shortName} serves the ${chapterProfile.parish} in ${chapterProfile.location}.`,
   },
   {
-    title: "Public contact details",
+    title: "Public inbox pattern",
     description:
-      "A canonical public email inbox and contact form still need chapter confirmation before they should be published here.",
+      "Use one chapter-managed public inbox for schedule, form, and announcement questions instead of publishing private leader addresses.",
   },
   {
-    title: "Current family path",
+    title: "What stays public",
     description:
-      "Until the public inbox is finalized, families should continue using the chapter communication channels already shared in announcements and email threads.",
+      "Announcements, schedule clarifications, packet downloads, and general family guidance belong on the public site.",
   },
   {
-    title: "Staff access",
+    title: "What stays private",
     description:
-      "Internal sign-in remains separate from the public site so chapter CRM and CMS data stay private.",
+      "Student rosters, guardian phone numbers, health notes, certificate follow-up, and paper-registration artifacts stay behind the staff admin.",
   },
 ];
 
 export const cmsReadyNotes = [
   "Page sections are driven by typed local content objects that can later be replaced by CMS records.",
-  "Announcement, schedule, and resource scaffolds already model future publishable fields instead of one-off prose blocks.",
+  "Representative fallback content keeps the public site reviewable even before a local database is configured.",
   "The public routes intentionally avoid any dependency on student, guardian, or registration tables.",
 ];

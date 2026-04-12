@@ -9,6 +9,7 @@ import {
   CRM_REGISTRATION_STATUSES,
 } from "@/lib/crm";
 import { getOptionalServerEnv, isDatabaseConfigured } from "@/lib/env";
+import { getCheckedFormValue } from "@/lib/form-data";
 import { requireMinimumRole } from "@/lib/auth/session";
 import { withTransaction } from "@/server/db";
 
@@ -31,7 +32,7 @@ function getOptionalString(formData: FormData, key: string) {
 }
 
 function getChecked(formData: FormData, key: string) {
-  return formData.get(key) === "on";
+  return getCheckedFormValue(formData, key);
 }
 
 function getSortOrder(formData: FormData, key: string) {

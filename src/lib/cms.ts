@@ -228,12 +228,13 @@ const FALLBACK_MANAGED_PAGES: Record<ManagedPageSlug, FallbackManagedPage> = {
   home: {
     slug: "home",
     route: "/",
-    titleEn: "A public front door for parents, families, and chapter updates.",
+    titleEn: "A family-first chapter website for announcements, schedules, and forms.",
     summaryEn:
-      "A dedicated public shell for announcements, dates, and downloadable resources instead of relying only on scattered email chains.",
+      "This representative homepage shows how TNTT Surrey families can check the latest announcements, review upcoming dates, and reopen key documents without chasing old emails.",
     bodyEn: [
-      "Families need one reliable place to confirm chapter updates, upcoming dates, and important documents.",
-      "The homepage should surface featured announcements and key dates while keeping private student and family records completely separate.",
+      "This local-development fallback mirrors the intended production experience: a small set of clear public routes backed by CMS-managed copy, announcements, schedules, and downloadable files.",
+      "Families should be able to answer the common questions quickly: what changed, what is coming up, and which form or checklist they need to reopen today.",
+      "Student rosters, guardian contacts, paper-registration artifacts, and health details stay out of the public shell entirely.",
     ].join("\n\n"),
   },
   about: {
@@ -241,22 +242,60 @@ const FALLBACK_MANAGED_PAGES: Record<ManagedPageSlug, FallbackManagedPage> = {
     route: "/about",
     titleEn: "A chapter overview shaped for families who may be new to TNTT.",
     summaryEn:
-      "Explain the chapter, parish context, and division-based structure in clear family-facing language.",
+      "Explain the chapter, parish context, and division-based structure in clear family-facing language without turning the public site into a private directory.",
     bodyEn: [
-      "This page should answer what TNTT is, how the local chapter fits into parish life, and what families can expect from the chapter year.",
-      "Public storytelling belongs here; student rosters and private contact records do not.",
+      "TNTT Surrey serves the Our Lady of La Vang Vietnamese community at St. Matthew's Parish and gives families a stable public place to understand the chapter rhythm before or after registration.",
+      "The public story belongs here: what TNTT is, how the local chapter fits parish life, and how the divisions help families understand age-appropriate formation.",
+      "Public storytelling belongs here. Student rosters, guardian contacts, and yearly registration follow-up do not.",
     ].join("\n\n"),
   },
   contact: {
     slug: "contact",
     route: "/contact",
-    titleEn: "A public contact page that stays honest about what is confirmed.",
+    titleEn: "A public contact page that keeps family guidance clear and private data separate.",
     summaryEn:
-      "Publish the final inbox, contact guidance, and family follow-up details once leadership approves them.",
+      "The contact route should give families one stable next step for public questions while keeping staff-only CRM data behind authenticated access.",
     bodyEn: [
-      "Until the chapter confirms the canonical inbox and preferred routing, the public contact page should stay truthful instead of inventing details.",
-      "This route should remain clearly public and separate from internal staff, family, and student records.",
+      "A chapter-managed public inbox and a few clear routing notes reduce the need for families to guess which leader to message for schedule or paperwork questions.",
+      "Until leadership finalizes every public detail, the site should stay honest: publish what is confirmed, avoid invented contact data, and keep staff-only records in the admin workspace.",
+      "This route remains clearly public and separate from internal staff, family, and student records.",
     ].join("\n\n"),
+  },
+};
+
+const DEMO_MEDIA_ASSET_DATES = {
+  createdAt: "2026-02-18T16:00:00.000Z",
+  updatedAt: "2026-02-18T16:00:00.000Z",
+};
+
+const DEMO_PUBLIC_MEDIA_ASSETS: Record<"familyPacket" | "retreatChecklist", CmsMediaAsset> = {
+  familyPacket: {
+    altText: null,
+    bucket: "public-demo",
+    caption: "Representative local-development family registration packet.",
+    createdAt: DEMO_MEDIA_ASSET_DATES.createdAt,
+    id: "demo-family-packet",
+    kind: "file",
+    label: "2026-2027 family registration packet",
+    mimeType: "text/plain",
+    publicUrl: "/demo/2026-2027-family-registration-packet.txt",
+    sizeBytes: null,
+    storagePath: "public/demo/2026-2027-family-registration-packet.txt",
+    updatedAt: DEMO_MEDIA_ASSET_DATES.updatedAt,
+  },
+  retreatChecklist: {
+    altText: null,
+    bucket: "public-demo",
+    caption: "Representative local-development retreat checklist.",
+    createdAt: DEMO_MEDIA_ASSET_DATES.createdAt,
+    id: "demo-retreat-checklist",
+    kind: "file",
+    label: "Lenten retreat family checklist",
+    mimeType: "text/plain",
+    publicUrl: "/demo/lenten-retreat-family-checklist.txt",
+    sizeBytes: null,
+    storagePath: "public/demo/lenten-retreat-family-checklist.txt",
+    updatedAt: DEMO_MEDIA_ASSET_DATES.updatedAt,
   },
 };
 
@@ -412,21 +451,26 @@ function mapResource(row: CmsResourceRow): CmsResource {
 
 function getFallbackAnnouncements(): CmsAnnouncement[] {
   return announcementPreviews.map((announcement, index) => ({
-    attachment: null,
+    attachment:
+      announcement.slug === "registration-packet-live"
+        ? DEMO_PUBLIC_MEDIA_ASSETS.familyPacket
+        : announcement.slug === "lenten-retreat-checklist"
+          ? DEMO_PUBLIC_MEDIA_ASSETS.retreatChecklist
+          : null,
     audience: announcement.audience,
     bodyEn: announcement.summary.en,
     bodyVi: announcement.summary.vi ?? null,
-    createdAt: "",
+    createdAt: `2026-02-${String(index + 8).padStart(2, "0")}T16:00:00.000Z`,
     id: `fallback-announcement-${index + 1}`,
     isFeatured: index === 0,
-    publishedAt: null,
+    publishedAt: `2026-02-${String(index + 8).padStart(2, "0")}T16:00:00.000Z`,
     slug: announcement.slug,
-    status: "draft",
+    status: "published",
     summaryEn: announcement.summary.en,
     summaryVi: announcement.summary.vi ?? null,
     titleEn: announcement.title.en,
     titleVi: announcement.title.vi ?? null,
-    updatedAt: "",
+    updatedAt: `2026-02-${String(index + 8).padStart(2, "0")}T16:00:00.000Z`,
   }));
 }
 
@@ -435,19 +479,19 @@ function getFallbackScheduleItems(): CmsScheduleItem[] {
     actionHref: null,
     actionLabel: null,
     audience: null,
-    createdAt: "",
+    createdAt: `2026-02-${String(index + 1).padStart(2, "0")}T16:00:00.000Z`,
     dateLabelEn: item.dateLabel,
     dateLabelVi: null,
     id: `fallback-schedule-${index + 1}`,
     isFeatured: index >= weeklyRhythm.length,
     noteEn: item.note,
     noteVi: null,
-    publishedAt: null,
+    publishedAt: `2026-02-${String(index + 1).padStart(2, "0")}T16:00:00.000Z`,
     sortOrder: index,
-    status: "draft",
+    status: "published",
     titleEn: item.label,
     titleVi: null,
-    updatedAt: "",
+    updatedAt: `2026-02-${String(index + 1).padStart(2, "0")}T16:00:00.000Z`,
   }));
 }
 
@@ -455,19 +499,24 @@ function getFallbackResources(): CmsResource[] {
   return resourcePreviews.map((resource, index) => ({
     audience: resource.audience,
     availabilityLabel: resource.availability,
-    createdAt: "",
+    createdAt: `2026-02-${String(index + 18).padStart(2, "0")}T16:00:00.000Z`,
     descriptionEn: resource.description.en,
     descriptionVi: resource.description.vi ?? null,
-    file: null,
+    file:
+      index === 0
+        ? DEMO_PUBLIC_MEDIA_ASSETS.familyPacket
+        : index === 1
+          ? DEMO_PUBLIC_MEDIA_ASSETS.retreatChecklist
+          : null,
     id: `fallback-resource-${index + 1}`,
     isFeatured: index === 0,
-    linkUrl: null,
-    publishedAt: null,
+    linkUrl: index === 2 ? "https://example.com/family-handbook-summary" : null,
+    publishedAt: `2026-02-${String(index + 18).padStart(2, "0")}T16:00:00.000Z`,
     sortOrder: index,
-    status: "draft",
+    status: "published",
     titleEn: resource.title.en,
     titleVi: resource.title.vi ?? null,
-    updatedAt: "",
+    updatedAt: `2026-02-${String(index + 18).padStart(2, "0")}T16:00:00.000Z`,
   }));
 }
 
@@ -477,18 +526,18 @@ export function getFallbackManagedPage(slug: ManagedPageSlug): CmsPageEditorReco
   return {
     bodyEn: fallback.bodyEn,
     bodyVi: null,
-    createdAt: "",
+    createdAt: "2026-02-01T16:00:00.000Z",
     exists: false,
     id: "",
-    publishedAt: null,
+    publishedAt: "2026-02-01T16:00:00.000Z",
     route: fallback.route,
     slug,
-    status: "draft",
+    status: "published",
     summaryEn: fallback.summaryEn,
     summaryVi: null,
     titleEn: fallback.titleEn,
     titleVi: null,
-    updatedAt: "",
+    updatedAt: "2026-02-01T16:00:00.000Z",
   };
 }
 
@@ -857,16 +906,16 @@ export async function getPublishedManagedPage(slug: ManagedPageSlug) {
   return {
     bodyEn: fallback.bodyEn,
     bodyVi: null,
-    createdAt: "",
+    createdAt: "2026-02-01T16:00:00.000Z",
     id: "",
-    publishedAt: null,
+    publishedAt: "2026-02-01T16:00:00.000Z",
     slug,
-    status: "draft",
+    status: "published",
     summaryEn: fallback.summaryEn,
     summaryVi: null,
     titleEn: fallback.titleEn,
     titleVi: null,
-    updatedAt: "",
+    updatedAt: "2026-02-01T16:00:00.000Z",
   } satisfies CmsPage;
 }
 

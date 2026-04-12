@@ -10,6 +10,7 @@ import { isDatabaseConfigured } from "@/lib/env";
 import { requireMinimumRole } from "@/lib/auth/session";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { getOptionalServerEnv } from "@/lib/env";
+import { getCheckedFormValue } from "@/lib/form-data";
 import { query } from "@/server/db";
 
 const contentStatusSchema = z.enum(["draft", "published"]);
@@ -30,7 +31,7 @@ function getOptionalString(formData: FormData, key: string) {
 }
 
 function getChecked(formData: FormData, key: string) {
-  return formData.get(key) === "on";
+  return getCheckedFormValue(formData, key);
 }
 
 function getSortOrder(formData: FormData, key: string) {

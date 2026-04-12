@@ -1,0 +1,14 @@
+TNTT Surrey CRM/CMS Demo
+2026-2027 Family Registration Packet
+
+This is a representative local-development file.
+It exists so the public announcement and resources flows can be reviewed end-to-end before real chapter PDFs are approved.
+
+Typical packet contents:
+- family contact sheet
+- student sacrament history summary
+- emergency and medical support fields
+- consent and photo-release signatures
+- uniform and fee notes
+
+Replace this file with the real chapter packet before launch.
