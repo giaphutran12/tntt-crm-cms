@@ -1,7 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
 import {
   getStaffRoleMetadata,
+  isAppUserAuthForeignKeyRace,
   provisionStaffUser,
+  retryAppUserUpsert,
 } from "./staff-user-provisioning";
 
 describe("provisionStaffUser", () => {
@@ -74,5 +76,54 @@ describe("getStaffRoleMetadata", () => {
       app_role: "editor",
       role: "editor",
     });
+  });
+});
+
+describe("isAppUserAuthForeignKeyRace", () => {
+  it("matches the transient auth.users foreign-key race", () => {
+    expect(
+      isAppUserAuthForeignKeyRace({
+        code: "23503",
+        constraint: "app_users_id_fkey",
+      }),
+    ).toBe(true);
+  });
+
+  it("ignores other database failures", () => {
+    expect(
+      isAppUserAuthForeignKeyRace({
+        code: "23505",
+        constraint: "app_users_email_key",
+      }),
+    ).toBe(false);
+  });
+});
+
+describe("retryAppUserUpsert", () => {
+  it("retries the auth.users foreign-key race until the insert succeeds", async () => {
+    const operation = vi
+      .fn<() => Promise<void>>()
+      .mockRejectedValueOnce({
+        code: "23503",
+        constraint: "app_users_id_fkey",
+      })
+      .mockResolvedValueOnce(undefined);
+    const waitForRetry = vi.fn(async () => {});
+
+    await retryAppUserUpsert(operation, waitForRetry);
+
+    expect(operation).toHaveBeenCalledTimes(2);
+    expect(waitForRetry).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not hide non-race database failures", async () => {
+    const error = {
+      code: "23505",
+      constraint: "app_users_email_key",
+    };
+    const operation = vi.fn<() => Promise<void>>().mockRejectedValue(error);
+
+    await expect(retryAppUserUpsert(operation)).rejects.toBe(error);
+    expect(operation).toHaveBeenCalledTimes(1);
   });
 });

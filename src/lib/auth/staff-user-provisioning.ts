@@ -8,6 +8,9 @@ import {
 import { query } from "@/server/db";
 import { DEFAULT_APP_ROLE, type AppRole } from "./roles";
 
+const APP_USER_UPSERT_MAX_ATTEMPTS = 5;
+const APP_USER_UPSERT_RETRY_DELAY_MS = 75;
+
 export type StaffSignupAvailability =
   | {
       status: "available";
@@ -38,6 +41,11 @@ type StaffUserProvisioningOptions = {
   cleanupAuthUserOnFailure?: boolean;
 };
 
+type PgErrorLike = {
+  code?: string;
+  constraint?: string;
+};
+
 export function getStaffSignupAvailability(): StaffSignupAvailability {
   if (!isSupabaseConfigured()) {
     return { status: "unavailable", reason: "missing-supabase-config" };
@@ -63,6 +71,35 @@ export function getStaffRoleMetadata(role: AppRole = DEFAULT_APP_ROLE) {
     app_role: role,
     role,
   };
+}
+
+export function isAppUserAuthForeignKeyRace(error: unknown) {
+  const candidate = error as PgErrorLike | null;
+
+  return (
+    candidate?.code === "23503" && candidate.constraint === "app_users_id_fkey"
+  );
+}
+
+export async function retryAppUserUpsert(
+  operation: () => Promise<void>,
+  waitForRetry: (milliseconds: number) => Promise<void> = waitForRetryDelay,
+) {
+  for (let attempt = 1; attempt <= APP_USER_UPSERT_MAX_ATTEMPTS; attempt += 1) {
+    try {
+      await operation();
+      return;
+    } catch (error) {
+      if (
+        !isAppUserAuthForeignKeyRace(error) ||
+        attempt === APP_USER_UPSERT_MAX_ATTEMPTS
+      ) {
+        throw error;
+      }
+
+      await waitForRetry(APP_USER_UPSERT_RETRY_DELAY_MS * attempt);
+    }
+  }
 }
 
 export async function provisionStaffUser(
@@ -113,19 +150,27 @@ function createDefaultDependencies(): StaffUserProvisioningDependencies {
       }
     },
     upsertAppUser: async ({ email, fullName, role, userId }) => {
-      await query(
-        `
-          insert into public.app_users (id, email, role, display_name)
-          values ($1, $2, $3::public.app_role, $4)
-          on conflict (id) do update
-          set
-            email = excluded.email,
-            display_name = coalesce(excluded.display_name, public.app_users.display_name),
-            role = coalesce(public.app_users.role, excluded.role),
-            updated_at = timezone('utc', now())
-        `,
-        [userId, email, role, fullName],
-      );
+      await retryAppUserUpsert(async () => {
+        await query(
+          `
+            insert into public.app_users (id, email, role, display_name)
+            values ($1, $2, $3::public.app_role, $4)
+            on conflict (id) do update
+            set
+              email = excluded.email,
+              display_name = coalesce(excluded.display_name, public.app_users.display_name),
+              role = coalesce(public.app_users.role, excluded.role),
+              updated_at = timezone('utc', now())
+          `,
+          [userId, email, role, fullName],
+        );
+      });
     },
   };
+}
+
+function waitForRetryDelay(milliseconds: number) {
+  return new Promise<void>((resolve) => {
+    setTimeout(resolve, milliseconds);
+  });
 }

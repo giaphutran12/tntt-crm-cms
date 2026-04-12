@@ -39,6 +39,21 @@ cp .env.example .env.local
 
 2. Fill in the Supabase and Postgres values in `.env.local`.
 
+If you are using the local Supabase CLI stack, keep the auth/storage keys and
+the Postgres URL on the same local project. A mixed setup such as hosted
+`NEXT_PUBLIC_SUPABASE_URL` plus local `DATABASE_URL` will break staff signup,
+because `public.app_users` references the local `auth.users` table.
+
+The fastest local path is:
+
+```bash
+supabase start
+supabase status -o env
+```
+
+Then copy `API_URL`, `PUBLISHABLE_KEY`, `SERVICE_ROLE_KEY`, and `DB_URL` into
+the matching `.env.local` entries before starting Next.js.
+
 3. Install dependencies:
 
 ```bash
