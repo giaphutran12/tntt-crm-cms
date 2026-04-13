@@ -1,9 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { saveAnnouncementAction } from "./actions";
+import { saveAnnouncementAction, saveMediaAssetAction } from "./actions";
 import { requireMinimumRole } from "@/lib/auth/session";
 import { provisionStaffUser } from "@/lib/auth/staff-user-provisioning";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { revalidatePath } from "next/cache";
+import { CMS_UPLOAD_MAX_BYTES } from "@/lib/cms-upload";
 
 class RedirectSignal extends Error {
   constructor(readonly url: string) {
@@ -132,19 +133,32 @@ function buildSupabaseAdminClient(options?: {
   };
 }
 
-function buildAnnouncementFormData() {
+function buildAnnouncementFormData(
+  file = new File(["packet"], "retreat-packet.pdf", {
+    type: "application/pdf",
+  }),
+) {
   const formData = new FormData();
 
   formData.append("titleEn", "Retreat packet ready");
   formData.append("summaryEn", "Download the packet.");
   formData.append("bodyEn", "Packet body");
   formData.append("status", "published");
-  formData.append(
-    "attachmentFile",
-    new File(["packet"], "retreat-packet.pdf", {
-      type: "application/pdf",
-    }),
-  );
+  formData.append("attachmentFile", file);
+
+  return formData;
+}
+
+function buildMediaAssetFormData(
+  file = new File(["gif"], "campfire-loop.gif", {
+    type: "image/gif",
+  }),
+) {
+  const formData = new FormData();
+
+  formData.append("label", "Campfire loop");
+  formData.append("folder", "media");
+  formData.append("file", file);
 
   return formData;
 }
@@ -207,6 +221,29 @@ describe("saveAnnouncementAction", () => {
     expect(redirectUrl).toContain("/admin/announcements?notice=");
   });
 
+  it("accepts supported GIF attachments without crashing the announcement flow", async () => {
+    const supabase = buildSupabaseAdminClient();
+    mockedCreateSupabaseAdminClient.mockReturnValue(supabase.client as never);
+
+    const redirectUrl = await expectRedirect(() =>
+      saveAnnouncementAction(
+        buildAnnouncementFormData(
+          new File(["gif"], "campfire-loop.gif", {
+            type: "image/gif",
+          }),
+        ),
+      ),
+    );
+
+    expect(supabase.upload).toHaveBeenCalledTimes(1);
+    expect(supabase.announcementInsert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        attachment_media_id: "asset-1",
+      }),
+    );
+    expect(redirectUrl).toContain("/admin/announcements?notice=");
+  });
+
   it("cleans up the uploaded asset when the announcement insert fails after upload", async () => {
     const supabase = buildSupabaseAdminClient({
       announcementInsertError: { message: "insert failed" },
@@ -224,5 +261,66 @@ describe("saveAnnouncementAction", () => {
     ]);
     expect(mockedRevalidatePath).not.toHaveBeenCalled();
     expect(redirectUrl).toContain("/admin/announcements?error=insert%20failed");
+  });
+
+  it("rejects unsupported attachment types with a friendly error before uploading", async () => {
+    const supabase = buildSupabaseAdminClient();
+    mockedCreateSupabaseAdminClient.mockReturnValue(supabase.client as never);
+
+    const redirectUrl = await expectRedirect(() =>
+      saveAnnouncementAction(
+        buildAnnouncementFormData(
+          new File(["binary"], "malware.exe", {
+            type: "application/x-msdownload",
+          }),
+        ),
+      ),
+    );
+
+    expect(supabase.upload).not.toHaveBeenCalled();
+    expect(supabase.announcementInsert).not.toHaveBeenCalled();
+    expect(decodeURIComponent(redirectUrl)).toContain("Unsupported file type.");
+  });
+
+  it("rejects oversized attachment uploads with a clear size-limit message", async () => {
+    const supabase = buildSupabaseAdminClient();
+    mockedCreateSupabaseAdminClient.mockReturnValue(supabase.client as never);
+    const oversizedGif = new File(
+      [new Uint8Array(CMS_UPLOAD_MAX_BYTES + 1)],
+      "retreat-loop.gif",
+      {
+        type: "image/gif",
+      },
+    );
+
+    const redirectUrl = await expectRedirect(() =>
+      saveAnnouncementAction(buildAnnouncementFormData(oversizedGif)),
+    );
+
+    expect(supabase.upload).not.toHaveBeenCalled();
+    expect(supabase.announcementInsert).not.toHaveBeenCalled();
+    expect(decodeURIComponent(redirectUrl)).toContain("Upload files up to 25 MB.");
+  });
+});
+
+describe("saveMediaAssetAction", () => {
+  it("uses the same upload policy and rejects direct video uploads", async () => {
+    const supabase = buildSupabaseAdminClient();
+    mockedCreateSupabaseAdminClient.mockReturnValue(supabase.client as never);
+
+    const redirectUrl = await expectRedirect(() =>
+      saveMediaAssetAction(
+        buildMediaAssetFormData(
+          new File(["video"], "welcome.mp4", {
+            type: "video/mp4",
+          }),
+        ),
+      ),
+    );
+
+    expect(supabase.upload).not.toHaveBeenCalled();
+    expect(decodeURIComponent(redirectUrl)).toContain(
+      "Video uploads are not supported in the CMS yet.",
+    );
   });
 });

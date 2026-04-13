@@ -5,6 +5,7 @@ import type {
   TextareaHTMLAttributes,
 } from "react";
 import Link from "next/link";
+import { CmsFileInput } from "@/components/admin/cms-file-input";
 import {
   getCmsDashboardSummary,
   getFallbackManagedPage,
@@ -383,7 +384,7 @@ function AnnouncementForm({
         <div>
           <p className="font-semibold text-[var(--foreground)]">Optional public attachment</p>
           <p className="mt-1 text-sm text-[var(--muted)]">
-            Upload a retreat PDF or other public document directly here. New uploads will replace the current linked file for this announcement.
+            Upload a public image or document directly here. GIFs are supported. New uploads will replace the current linked file for this announcement.
           </p>
         </div>
         <div className="grid gap-4 lg:grid-cols-[1fr_1fr]">
@@ -391,7 +392,7 @@ function AnnouncementForm({
             <TextInput defaultValue={announcement?.attachment?.label ?? ""} name="attachmentLabel" />
           </Field>
           <Field label="Attachment file">
-            <TextInput accept=".pdf,image/*" name="attachmentFile" type="file" />
+            <CmsFileInput name="attachmentFile" />
           </Field>
         </div>
         <div className="grid gap-4 lg:grid-cols-2">
@@ -594,7 +595,7 @@ function ResourceForm({ resource }: { resource?: CmsResource }) {
             <TextInput defaultValue={resource?.file?.label ?? ""} name="fileLabel" />
           </Field>
           <Field label="Upload file">
-            <TextInput accept=".pdf,image/*" name="resourceFile" type="file" />
+            <CmsFileInput name="resourceFile" />
           </Field>
         </div>
         <Field label="File caption">
@@ -663,7 +664,7 @@ function MediaAssetForm({ asset }: { asset?: CmsMediaAsset }) {
       </div>
       <div className="grid gap-4 lg:grid-cols-2">
         <Field label="File">
-          <TextInput name="file" required type="file" />
+          <CmsFileInput name="file" required />
         </Field>
         <Field label="Alt text">
           <TextInput name="altText" />

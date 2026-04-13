@@ -12,6 +12,7 @@ import { provisionStaffUser } from "@/lib/auth/staff-user-provisioning";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { getOptionalServerEnv } from "@/lib/env";
 import { getCheckedFormValue } from "@/lib/form-data";
+import { validateCmsUpload } from "@/lib/cms-upload";
 
 const contentStatusSchema = z.enum(["draft", "published"]);
 const managedPageSlugSchema = z.enum(MANAGED_PAGE_SLUGS);
@@ -75,19 +76,40 @@ function sanitizeStorageSegment(value: string) {
     .slice(0, 80);
 }
 
-function getFileExtension(file: File) {
+function getFileExtension(file: File, mimeType?: string | null) {
   const fromName = file.name.split(".").pop()?.trim().toLowerCase();
 
   if (fromName && /^[a-z0-9]+$/.test(fromName)) {
     return fromName;
   }
 
-  if (file.type === "application/pdf") {
+  const effectiveMimeType = mimeType ?? file.type;
+
+  if (effectiveMimeType === "application/pdf") {
     return "pdf";
   }
 
-  if (file.type.startsWith("image/")) {
-    return file.type.replace("image/", "") || "jpg";
+  if (effectiveMimeType?.startsWith("image/")) {
+    return effectiveMimeType.replace("image/", "") || "jpg";
+  }
+
+  switch (effectiveMimeType) {
+    case "application/msword":
+      return "doc";
+    case "application/vnd.openxmlformats-officedocument.wordprocessingml.document":
+      return "docx";
+    case "application/vnd.ms-excel":
+      return "xls";
+    case "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet":
+      return "xlsx";
+    case "application/vnd.ms-powerpoint":
+      return "ppt";
+    case "application/vnd.openxmlformats-officedocument.presentationml.presentation":
+      return "pptx";
+    case "text/csv":
+      return "csv";
+    case "text/plain":
+      return "txt";
   }
 
   return "bin";
@@ -191,14 +213,21 @@ async function uploadPublicAsset(options: {
 }) {
   const { SUPABASE_PUBLIC_MEDIA_BUCKET } = getOptionalServerEnv();
   const supabase = getCmsClient();
-  const extension = getFileExtension(options.file);
+  const validation = validateCmsUpload(options.file);
+
+  if (!validation.ok) {
+    throw new Error(validation.message);
+  }
+
+  const mimeType = validation.normalizedMimeType;
+  const extension = validation.storageExtension || getFileExtension(options.file, mimeType);
   const baseName = sanitizeStorageSegment(options.label || options.file.name || "asset");
   const storagePath = `${sanitizeStorageSegment(options.folder)}/${baseName}-${randomUUID()}.${extension}`;
   const fileBuffer = Buffer.from(await options.file.arrayBuffer());
 
   const uploadResult = await supabase.storage.from(SUPABASE_PUBLIC_MEDIA_BUCKET).upload(storagePath, fileBuffer, {
     cacheControl: "3600",
-    contentType: options.file.type || undefined,
+    contentType: mimeType ?? undefined,
     upsert: false,
   });
 
@@ -207,7 +236,7 @@ async function uploadPublicAsset(options: {
   }
 
   const publicUrlResult = supabase.storage.from(SUPABASE_PUBLIC_MEDIA_BUCKET).getPublicUrl(storagePath);
-  const kind = options.file.type.startsWith("image/") ? "image" : "file";
+  const kind = validation.storageKind;
 
   const { data, error } = await supabase
     .from("cms_media_assets")
@@ -218,7 +247,7 @@ async function uploadPublicAsset(options: {
       created_by: options.userId,
       kind,
       label: options.label,
-      mime_type: options.file.type || null,
+      mime_type: mimeType,
       public_url: publicUrlResult.data.publicUrl,
       size_bytes: options.file.size,
       storage_path: storagePath,
