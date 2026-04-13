@@ -57,6 +57,7 @@ async function getRoleFromDatabase(userId: string) {
         limit 1
       `,
       [userId],
+      { userId },
     );
 
     return normalizeAppRole(result.rows[0]?.role ?? null);

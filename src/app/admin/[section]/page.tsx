@@ -2,6 +2,7 @@ import { notFound } from "next/navigation";
 import { AccessDeniedPanel } from "@/components/admin/access-panels";
 import { CmsSectionContent } from "@/components/admin/cms";
 import { CrmSectionContent } from "@/components/admin/crm";
+import { AdminSettingsSection } from "@/components/admin/settings";
 import { getAdminSection } from "@/lib/admin/navigation";
 import { requireMinimumRole } from "@/lib/auth/session";
 
@@ -52,8 +53,18 @@ export default async function AdminSectionPage({
   if (adminSection.group === "crm") {
     return (
       <CrmSectionContent
+        currentUserId={access.currentUser.id}
         searchParams={resolvedSearchParams}
         section={adminSection.slug}
+      />
+    );
+  }
+
+  if (adminSection.group === "admin") {
+    return (
+      <AdminSettingsSection
+        currentUser={access.currentUser}
+        searchParams={resolvedSearchParams}
       />
     );
   }

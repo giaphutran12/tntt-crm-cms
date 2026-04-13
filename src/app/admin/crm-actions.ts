@@ -136,6 +136,13 @@ function revalidateCrmPaths(extraPaths: string[] = []) {
   }
 }
 
+function withCrmTransaction<T>(
+  userId: string,
+  callback: Parameters<typeof withTransaction<T>>[0],
+) {
+  return withTransaction(callback, { userId });
+}
+
 type GuardianSlot = {
   email: string | null;
   fullName: string | null;
@@ -333,7 +340,7 @@ export async function saveFamilyAction(formData: FormData) {
       throw new Error("Household label is required.");
     }
 
-    await withTransaction(async (client) => {
+    await withCrmTransaction(currentUser.id, async (client) => {
       const familyValues = [
         householdName,
         getTrimmedString(formData, "homeAddress"),
@@ -417,7 +424,7 @@ export async function saveStudentAction(formData: FormData) {
       throw new Error("Student legal first and last name are required.");
     }
 
-    await withTransaction(async (client) => {
+    await withCrmTransaction(currentUser.id, async (client) => {
       const studentValues = [
         familyId,
         legalFirstName,
@@ -586,7 +593,7 @@ export async function saveDivisionLevelAction(formData: FormData) {
       currentUser.id,
     ];
 
-    await withTransaction(async (client) => {
+    await withCrmTransaction(currentUser.id, async (client) => {
       if (id) {
         await client.query(
           `
@@ -654,7 +661,7 @@ export async function saveClassGroupAction(formData: FormData) {
       currentUser.id,
     ];
 
-    await withTransaction(async (client) => {
+    await withCrmTransaction(currentUser.id, async (client) => {
       if (id) {
         await client.query(
           `
@@ -714,7 +721,7 @@ export async function saveRegistrationCycleAction(formData: FormData) {
       throw new Error("Cycle name and school-year label are required.");
     }
 
-    await withTransaction(async (client) => {
+    await withCrmTransaction(currentUser.id, async (client) => {
       if (isActive) {
         await client.query(
           `
@@ -797,7 +804,7 @@ export async function saveStudentRegistrationAction(formData: FormData) {
       throw new Error("Student and registration cycle are required.");
     }
 
-    await withTransaction(async (client) => {
+    await withCrmTransaction(currentUser.id, async (client) => {
       const studentLookup = await client.query<{ family_id: string | null }>(
         `
           select family_id::text as family_id

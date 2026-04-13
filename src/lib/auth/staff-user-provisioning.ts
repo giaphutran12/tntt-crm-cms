@@ -4,7 +4,12 @@ import {
   hasSupabaseServiceRoleKey,
   isSupabaseConfigured,
 } from "@/lib/env";
-import { DEFAULT_APP_ROLE, type AppRole } from "./roles";
+import {
+  APP_ROLES,
+  DEFAULT_APP_ROLE,
+  hasMinimumRole,
+  type AppRole,
+} from "./roles";
 
 const APP_USER_UPSERT_MAX_ATTEMPTS = 5;
 const APP_USER_UPSERT_RETRY_DELAY_MS = 75;
@@ -47,9 +52,48 @@ type PgErrorLike = {
 };
 
 type AppUserRecord = {
+  created_at?: string;
   display_name: string | null;
   email: string | null;
   role: AppRole;
+  updated_at?: string;
+};
+
+type RoleChangeAuditRecord = {
+  actor: Array<{
+    display_name: string | null;
+    email: string | null;
+  }> | null;
+  created_at: string;
+  id: string;
+  new_role: AppRole;
+  note: string | null;
+  old_role: AppRole;
+  subject: Array<{
+    display_name: string | null;
+    email: string | null;
+  }> | null;
+};
+
+export type StaffAccessRecord = {
+  createdAt: string;
+  displayName: string | null;
+  email: string | null;
+  id: string;
+  role: AppRole;
+  updatedAt: string;
+};
+
+export type StaffRoleChangeRecord = {
+  actorDisplayName: string | null;
+  actorEmail: string | null;
+  createdAt: string;
+  id: string;
+  newRole: AppRole;
+  note: string | null;
+  oldRole: AppRole;
+  subjectDisplayName: string | null;
+  subjectEmail: string | null;
 };
 
 export function getStaffSignupAvailability(): StaffSignupAvailability {
@@ -73,6 +117,14 @@ export function getStaffRoleMetadata(role: AppRole = DEFAULT_APP_ROLE) {
     app_role: role,
     role,
   };
+}
+
+export function normalizeRequestedStaffRole(input?: string | null) {
+  if (!input) {
+    return null;
+  }
+
+  return APP_ROLES.find((role) => role === input) ?? null;
 }
 
 export function isAppUserAuthForeignKeyRace(error: unknown) {
@@ -139,6 +191,153 @@ export async function provisionStaffUser(
   }
 }
 
+export async function listStaffAccessRecords() {
+  const supabaseAdmin = createSupabaseAdminClient();
+  const { data, error } = await supabaseAdmin
+    .from("app_users")
+    .select("id,email,role,display_name,created_at,updated_at");
+
+  if (error) {
+    throw error;
+  }
+
+  return (data ?? [])
+    .map((row) => mapStaffAccessRecord(row as AppUserRecord & { id: string }))
+    .sort((left, right) => {
+      if (left.role === right.role) {
+        return (left.email ?? left.displayName ?? left.id).localeCompare(
+          right.email ?? right.displayName ?? right.id,
+        );
+      }
+
+      return hasMinimumRole(left.role, right.role) ? -1 : 1;
+    });
+}
+
+export async function listStaffRoleChangeRecords(limit = 20) {
+  const supabaseAdmin = createSupabaseAdminClient();
+  const { data, error } = await supabaseAdmin
+    .from("app_user_role_changes")
+    .select(`
+      id,
+      old_role,
+      new_role,
+      note,
+      created_at,
+      actor:actor_user_id (
+        email,
+        display_name
+      ),
+      subject:subject_user_id (
+        email,
+        display_name
+      )
+    `)
+    .order("created_at", { ascending: false })
+    .limit(limit);
+
+  if (error) {
+    throw error;
+  }
+
+  return (data ?? []).map((row) =>
+    mapRoleChangeAuditRecord(row as RoleChangeAuditRecord),
+  );
+}
+
+export async function updateStaffRole(input: {
+  actingUserId: string;
+  nextRole: AppRole;
+  note?: string | null;
+  subjectUserId: string;
+}) {
+  const supabaseAdmin = createSupabaseAdminClient();
+  const actingUser = await loadRequiredAppUser(supabaseAdmin, input.actingUserId);
+  const subjectUser = await loadRequiredAppUser(supabaseAdmin, input.subjectUserId);
+
+  if (actingUser.role !== "admin") {
+    throw new Error("Only admins can change staff roles.");
+  }
+
+  if (actingUser.id === subjectUser.id) {
+    throw new Error("Use another admin account to change your own role.");
+  }
+
+  if (subjectUser.role === input.nextRole) {
+    return {
+      changed: false as const,
+      record: mapStaffAccessRecord(subjectUser),
+    };
+  }
+
+  if (subjectUser.role === "admin" && input.nextRole !== "admin") {
+    const adminCount = await countAdminUsers(supabaseAdmin);
+
+    if (adminCount <= 1) {
+      throw new Error("At least one admin account must remain.");
+    }
+  }
+
+  const existingUserResult = await supabaseAdmin.auth.admin.getUserById(input.subjectUserId);
+
+  if (existingUserResult.error) {
+    throw existingUserResult.error;
+  }
+
+  if (!existingUserResult.data.user) {
+    throw new Error(`Auth user ${input.subjectUserId} could not be loaded for role sync.`);
+  }
+
+  await syncAuthRoleMetadata(
+    supabaseAdmin,
+    input.subjectUserId,
+    input.nextRole,
+    existingUserResult.data.user.app_metadata,
+  );
+
+  try {
+    const { data: updatedAppUser, error: updateError } = await supabaseAdmin
+      .from("app_users")
+      .update({
+        role: input.nextRole,
+      })
+      .eq("id", input.subjectUserId)
+      .select("id,email,role,display_name,created_at,updated_at")
+      .single();
+
+    if (updateError) {
+      throw updateError;
+    }
+
+    const { error: auditError } = await supabaseAdmin
+      .from("app_user_role_changes")
+      .insert({
+        actor_user_id: input.actingUserId,
+        subject_user_id: input.subjectUserId,
+        old_role: subjectUser.role,
+        new_role: input.nextRole,
+        note: input.note?.trim() || null,
+      });
+
+    if (auditError) {
+      throw auditError;
+    }
+
+    return {
+      changed: true as const,
+      record: mapStaffAccessRecord(updatedAppUser as AppUserRecord & { id: string }),
+    };
+  } catch (error) {
+    await syncAuthRoleMetadata(
+      supabaseAdmin,
+      input.subjectUserId,
+      subjectUser.role,
+      existingUserResult.data.user.app_metadata,
+    );
+    throw error;
+  }
+}
+
 function createDefaultDependencies(): StaffUserProvisioningDependencies {
   return {
     deleteAuthUser: async (userId) => {
@@ -199,16 +398,12 @@ function createDefaultDependencies(): StaffUserProvisioningDependencies {
         throw new Error(`Auth user ${userId} could not be loaded for role sync.`);
       }
 
-      const { error } = await supabaseAdmin.auth.admin.updateUserById(userId, {
-        app_metadata: {
-          ...existingUserResult.data.user.app_metadata,
-          ...getStaffRoleMetadata(role),
-        },
-      });
-
-      if (error) {
-        throw error;
-      }
+      await syncAuthRoleMetadata(
+        supabaseAdmin,
+        userId,
+        role,
+        existingUserResult.data.user.app_metadata,
+      );
     },
     upsertAppUser: async ({ email, fullName, role, userId }) => {
       const supabaseAdmin = createSupabaseAdminClient();
@@ -241,7 +436,7 @@ async function loadExistingAppUser(
 ) {
   const { data, error } = await supabaseAdmin
     .from("app_users")
-    .select("email, role, display_name")
+    .select("id, email, role, display_name, created_at, updated_at")
     .eq("id", userId)
     .maybeSingle<AppUserRecord>();
 
@@ -250,6 +445,90 @@ async function loadExistingAppUser(
   }
 
   return data;
+}
+
+async function loadRequiredAppUser(
+  supabaseAdmin: ReturnType<typeof createSupabaseAdminClient>,
+  userId: string,
+) {
+  const appUser = await loadExistingAppUser(supabaseAdmin, userId);
+
+  if (!appUser || !("id" in appUser) || typeof appUser.id !== "string") {
+    throw new Error(`Staff account ${userId} could not be loaded.`);
+  }
+
+  return appUser as AppUserRecord & { id: string };
+}
+
+async function countAdminUsers(
+  supabaseAdmin: ReturnType<typeof createSupabaseAdminClient>,
+) {
+  const { count, error } = await supabaseAdmin
+    .from("app_users")
+    .select("id", { count: "exact", head: true })
+    .eq("role", "admin");
+
+  if (error) {
+    throw error;
+  }
+
+  return count ?? 0;
+}
+
+async function syncAuthRoleMetadata(
+  supabaseAdmin: ReturnType<typeof createSupabaseAdminClient>,
+  userId: string,
+  role: AppRole,
+  existingMetadata: Record<string, unknown>,
+) {
+  const { error } = await supabaseAdmin.auth.admin.updateUserById(userId, {
+    app_metadata: {
+      ...existingMetadata,
+      ...getStaffRoleMetadata(role),
+    },
+  });
+
+  if (error) {
+    throw error;
+  }
+}
+
+function mapStaffAccessRecord(
+  row: AppUserRecord & { id: string },
+): StaffAccessRecord {
+  return {
+    createdAt:
+      typeof row.created_at === "string"
+        ? row.created_at
+        : new Date(0).toISOString(),
+    displayName: row.display_name,
+    email: row.email,
+    id: row.id,
+    role: row.role,
+    updatedAt:
+      typeof row.updated_at === "string"
+        ? row.updated_at
+        : new Date(0).toISOString(),
+  };
+}
+
+function mapRoleChangeAuditRecord(
+  row: RoleChangeAuditRecord,
+): StaffRoleChangeRecord {
+  const actor = Array.isArray(row.actor) ? row.actor[0] : null;
+  const subject = Array.isArray(row.subject) ? row.subject[0] : null;
+
+  return {
+    actorDisplayName: actor?.display_name ?? null,
+    actorEmail: actor?.email ?? null,
+    createdAt: row.created_at,
+    id: row.id,
+    newRole: row.new_role,
+    note: row.note,
+    oldRole: row.old_role,
+    subjectDisplayName: subject?.display_name ?? null,
+    subjectEmail: subject?.email ?? null,
+  };
 }
 
 function waitForRetryDelay(milliseconds: number) {
