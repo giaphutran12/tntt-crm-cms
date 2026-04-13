@@ -41,8 +41,9 @@ cp .env.example .env.local
 
 If you are using the local Supabase CLI stack, keep the auth/storage keys and
 the Postgres URL on the same local project. A mixed setup such as hosted
-`NEXT_PUBLIC_SUPABASE_URL` plus local `DATABASE_URL` will break staff signup,
-because `public.app_users` references the local `auth.users` table.
+`NEXT_PUBLIC_SUPABASE_URL` plus local `DATABASE_URL` no longer blocks the
+private staff sign-up flow, but it will still break the authenticated admin and
+CRM paths that use direct Postgres access.
 
 The fastest local path is:
 

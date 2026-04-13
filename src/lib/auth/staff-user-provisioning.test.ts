@@ -1,10 +1,94 @@
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import {
   getStaffRoleMetadata,
   isAppUserAuthForeignKeyRace,
   provisionStaffUser,
   retryAppUserUpsert,
 } from "./staff-user-provisioning";
+
+vi.mock("@/lib/supabase/admin", () => ({
+  createSupabaseAdminClient: vi.fn(),
+}));
+
+const mockedCreateSupabaseAdminClient = vi.mocked(createSupabaseAdminClient);
+
+function buildSupabaseAdminClient(options?: {
+  existingAppUser?: {
+    display_name: string | null;
+    email: string | null;
+    role: "editor" | "operations" | "admin";
+  } | null;
+  existingUser?: {
+    app_metadata: Record<string, unknown>;
+    email?: string | null;
+    id: string;
+    user_metadata: Record<string, unknown>;
+  };
+  getUserError?: Error | null;
+  upsertError?: unknown;
+}) {
+  const existingUser = options?.existingUser ?? {
+    id: "user-1",
+    email: "staff@example.com",
+    app_metadata: {
+      provider: "email",
+      providers: ["email"],
+    },
+    user_metadata: {},
+  };
+
+  const updateUserById = vi.fn(async (_userId: string, attributes: object) => ({
+    data: {
+      user: {
+        ...existingUser,
+        ...attributes,
+      },
+    },
+    error: null,
+  }));
+  const getUserById = vi.fn(async () => ({
+    data: { user: options?.getUserError ? null : existingUser },
+    error: options?.getUserError ?? null,
+  }));
+  const deleteUser = vi.fn(async () => ({
+    data: { user: null },
+    error: null,
+  }));
+  const maybeSingle = vi.fn(async () => ({
+    data: options?.existingAppUser ?? null,
+    error: null,
+  }));
+  const eq = vi.fn(() => ({
+    maybeSingle,
+  }));
+  const select = vi.fn(() => ({
+    eq,
+  }));
+  const upsert = vi.fn(async () => ({
+    data: null,
+    error: options?.upsertError ?? null,
+  }));
+  const from = vi.fn(() => ({
+    select,
+    upsert,
+  }));
+
+  return {
+    auth: {
+      admin: {
+        deleteUser,
+        getUserById,
+        updateUserById,
+      },
+    },
+    from,
+  };
+}
+
+beforeEach(() => {
+  vi.clearAllMocks();
+});
 
 describe("provisionStaffUser", () => {
   it("upserts the app user before syncing auth role metadata", async () => {
@@ -109,6 +193,79 @@ describe("provisionStaffUser", () => {
     expect(updateAuthRoleMetadata).not.toHaveBeenCalled();
     expect(deleteAuthUser).toHaveBeenCalledWith("user-3");
   });
+
+  it("uses the remote admin client to upsert app_users without downgrading existing roles", async () => {
+    const supabaseAdminClient = buildSupabaseAdminClient({
+      existingAppUser: {
+        email: "admin@example.com",
+        role: "admin",
+        display_name: "Existing Admin",
+      },
+    });
+
+    mockedCreateSupabaseAdminClient.mockReturnValue(supabaseAdminClient as never);
+
+    await provisionStaffUser({
+      email: "staff@example.com",
+      fullName: "Staff User",
+      userId: "user-1",
+    });
+
+    expect(supabaseAdminClient.from).toHaveBeenCalledWith("app_users");
+    expect(
+      supabaseAdminClient.auth.admin.updateUserById,
+    ).toHaveBeenNthCalledWith(1, "user-1", {
+      user_metadata: {
+        full_name: "Staff User",
+        name: "Staff User",
+      },
+    });
+    expect(supabaseAdminClient.from().upsert).toHaveBeenCalledWith(
+      {
+        id: "user-1",
+        email: "staff@example.com",
+        role: "admin",
+        display_name: "Staff User",
+      },
+      {
+        onConflict: "id",
+      },
+    );
+    expect(
+      supabaseAdminClient.auth.admin.updateUserById,
+    ).toHaveBeenNthCalledWith(2, "user-1", {
+      app_metadata: {
+        provider: "email",
+        providers: ["email"],
+        app_role: "editor",
+        role: "editor",
+      },
+    });
+    expect(supabaseAdminClient.auth.admin.deleteUser).not.toHaveBeenCalled();
+  });
+
+  it("rolls back the auth user when the remote app-user upsert fails", async () => {
+    const upsertError = new Error("upsert failed");
+    const supabaseAdminClient = buildSupabaseAdminClient({
+      upsertError,
+    });
+
+    mockedCreateSupabaseAdminClient.mockReturnValue(supabaseAdminClient as never);
+
+    await expect(
+      provisionStaffUser(
+        {
+          email: "staff@example.com",
+          userId: "user-1",
+        },
+        { cleanupAuthUserOnFailure: true },
+      ),
+    ).rejects.toThrow("upsert failed");
+
+    expect(supabaseAdminClient.auth.admin.deleteUser).toHaveBeenCalledWith(
+      "user-1",
+    );
+  });
 });
 
 describe("getStaffRoleMetadata", () => {
@@ -137,6 +294,18 @@ describe("isAppUserAuthForeignKeyRace", () => {
         constraint: "app_users_email_key",
       }),
     ).toBe(false);
+  });
+
+  it("matches the postgrest foreign-key race shape returned by remote upserts", () => {
+    expect(
+      isAppUserAuthForeignKeyRace({
+        code: "23503",
+        details:
+          'Key (id)=(user-1) is not present in table "users". constraint "app_users_id_fkey"',
+        message:
+          'insert or update on table "app_users" violates foreign key constraint "app_users_id_fkey"',
+      }),
+    ).toBe(true);
   });
 });
 

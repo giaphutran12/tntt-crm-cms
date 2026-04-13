@@ -15,7 +15,7 @@ type SignUpPageProps = {
 
 function getMessage(error?: string | string[]) {
   if (error === "missing-config") {
-    return "Staff sign-up is unavailable until Supabase auth, the service role key, the database, and the shared chapter password are all configured.";
+    return "Staff sign-up is unavailable until Supabase auth, the service role key, and the shared chapter password are all configured.";
   }
 
   if (error === "invalid-password") {
@@ -71,8 +71,7 @@ function getAvailabilityLabel(
   if (availability.reason === "missing-service-role") {
     return "missing Supabase service role key";
   }
-
-  return "missing database connection";
+  return "missing service-role access";
 }
 
 export default async function SignUpPage({ searchParams }: SignUpPageProps) {

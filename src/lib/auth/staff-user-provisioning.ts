@@ -2,10 +2,8 @@ import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import {
   getStaffSignupSharedPassword,
   hasSupabaseServiceRoleKey,
-  isDatabaseConfigured,
   isSupabaseConfigured,
 } from "@/lib/env";
-import { query } from "@/server/db";
 import { DEFAULT_APP_ROLE, type AppRole } from "./roles";
 
 const APP_USER_UPSERT_MAX_ATTEMPTS = 5;
@@ -19,8 +17,7 @@ export type StaffSignupAvailability =
       reason:
         | "missing-shared-password"
         | "missing-supabase-config"
-        | "missing-service-role"
-        | "missing-database";
+        | "missing-service-role";
       status: "unavailable";
     };
 
@@ -45,6 +42,14 @@ type StaffUserProvisioningOptions = {
 type PgErrorLike = {
   code?: string;
   constraint?: string;
+  details?: string | null;
+  message?: string;
+};
+
+type AppUserRecord = {
+  display_name: string | null;
+  email: string | null;
+  role: AppRole;
 };
 
 export function getStaffSignupAvailability(): StaffSignupAvailability {
@@ -60,10 +65,6 @@ export function getStaffSignupAvailability(): StaffSignupAvailability {
     return { status: "unavailable", reason: "missing-service-role" };
   }
 
-  if (!isDatabaseConfigured()) {
-    return { status: "unavailable", reason: "missing-database" };
-  }
-
   return { status: "available" };
 }
 
@@ -76,9 +77,12 @@ export function getStaffRoleMetadata(role: AppRole = DEFAULT_APP_ROLE) {
 
 export function isAppUserAuthForeignKeyRace(error: unknown) {
   const candidate = error as PgErrorLike | null;
+  const message = `${candidate?.message ?? ""} ${candidate?.details ?? ""}`;
 
   return (
-    candidate?.code === "23503" && candidate.constraint === "app_users_id_fkey"
+    candidate?.code === "23503" &&
+    (candidate.constraint === "app_users_id_fkey" ||
+      message.includes("app_users_id_fkey"))
   );
 }
 
@@ -139,78 +143,67 @@ function createDefaultDependencies(): StaffUserProvisioningDependencies {
   return {
     deleteAuthUser: async (userId) => {
       const supabaseAdmin = createSupabaseAdminClient();
-      await supabaseAdmin.auth.admin.deleteUser(userId);
-    },
-    ensureAuthUser: async ({ email, fullName, role, userId }) => {
-      const existingAuthUserResult = await query<{ exists: boolean }>(
-        `
-          select exists (
-            select 1
-            from auth.users
-            where id = $1
-          ) as exists
-        `,
-        [userId],
-      );
+      const { error } = await supabaseAdmin.auth.admin.deleteUser(userId);
 
-      if (existingAuthUserResult.rows[0]?.exists) {
+      if (error) {
+        throw error;
+      }
+    },
+    ensureAuthUser: async ({ fullName, userId }) => {
+      const supabaseAdmin = createSupabaseAdminClient();
+      const { data, error } = await supabaseAdmin.auth.admin.getUserById(userId);
+
+      if (error) {
+        throw error;
+      }
+
+      if (!data.user || data.user.id !== userId) {
+        throw new Error(`Auth user ${userId} could not be loaded for staff provisioning.`);
+      }
+
+      const nextUserMetadata =
+        fullName &&
+        data.user.user_metadata.full_name !== fullName &&
+        data.user.user_metadata.name !== fullName
+          ? {
+              ...data.user.user_metadata,
+              full_name: fullName,
+              name: fullName,
+            }
+          : null;
+
+      if (!nextUserMetadata) {
         return;
       }
 
-      await query(
-        `
-          insert into auth.users (
-            id,
-            email,
-            aud,
-            role,
-            email_confirmed_at,
-            raw_app_meta_data,
-            raw_user_meta_data,
-            created_at,
-            updated_at,
-            is_sso_user,
-            is_anonymous
-          )
-          values (
-            $1,
-            $2,
-            'authenticated',
-            'authenticated',
-            timezone('utc', now()),
-            $3::jsonb,
-            $4::jsonb,
-            timezone('utc', now()),
-            timezone('utc', now()),
-            false,
-            false
-          )
-          on conflict (id) do update
-          set
-            email = excluded.email,
-            raw_app_meta_data = excluded.raw_app_meta_data,
-            raw_user_meta_data = excluded.raw_user_meta_data,
-            updated_at = timezone('utc', now())
-        `,
-        [
-          userId,
-          email,
-          JSON.stringify(getStaffRoleMetadata(role)),
-          JSON.stringify(
-            fullName
-              ? {
-                  full_name: fullName,
-                  name: fullName,
-                }
-              : {},
-          ),
-        ],
+      const { error: updateError } = await supabaseAdmin.auth.admin.updateUserById(
+        userId,
+        {
+          user_metadata: nextUserMetadata,
+        },
       );
+
+      if (updateError) {
+        throw updateError;
+      }
     },
     updateAuthRoleMetadata: async (userId, role) => {
       const supabaseAdmin = createSupabaseAdminClient();
+      const existingUserResult = await supabaseAdmin.auth.admin.getUserById(userId);
+
+      if (existingUserResult.error) {
+        throw existingUserResult.error;
+      }
+
+      if (!existingUserResult.data.user) {
+        throw new Error(`Auth user ${userId} could not be loaded for role sync.`);
+      }
+
       const { error } = await supabaseAdmin.auth.admin.updateUserById(userId, {
-        app_metadata: getStaffRoleMetadata(role),
+        app_metadata: {
+          ...existingUserResult.data.user.app_metadata,
+          ...getStaffRoleMetadata(role),
+        },
       });
 
       if (error) {
@@ -218,23 +211,45 @@ function createDefaultDependencies(): StaffUserProvisioningDependencies {
       }
     },
     upsertAppUser: async ({ email, fullName, role, userId }) => {
+      const supabaseAdmin = createSupabaseAdminClient();
+      const existingAppUser = await loadExistingAppUser(supabaseAdmin, userId);
+
       await retryAppUserUpsert(async () => {
-        await query(
-          `
-            insert into public.app_users (id, email, role, display_name)
-            values ($1, $2, $3::public.app_role, $4)
-            on conflict (id) do update
-            set
-              email = excluded.email,
-              display_name = coalesce(excluded.display_name, public.app_users.display_name),
-              role = coalesce(public.app_users.role, excluded.role),
-              updated_at = timezone('utc', now())
-          `,
-          [userId, email, role, fullName],
+        const { error } = await supabaseAdmin.from("app_users").upsert(
+          {
+            id: userId,
+            email: email ?? existingAppUser?.email ?? null,
+            role: existingAppUser?.role ?? role,
+            display_name: fullName ?? existingAppUser?.display_name ?? null,
+          },
+          {
+            onConflict: "id",
+          },
         );
+
+        if (error) {
+          throw error;
+        }
       });
     },
   };
+}
+
+async function loadExistingAppUser(
+  supabaseAdmin: ReturnType<typeof createSupabaseAdminClient>,
+  userId: string,
+) {
+  const { data, error } = await supabaseAdmin
+    .from("app_users")
+    .select("email, role, display_name")
+    .eq("id", userId)
+    .maybeSingle<AppUserRecord>();
+
+  if (error) {
+    throw error;
+  }
+
+  return data;
 }
 
 function waitForRetryDelay(milliseconds: number) {
