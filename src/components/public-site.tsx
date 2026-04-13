@@ -22,9 +22,24 @@ export function PublicSiteHeader() {
       <div className="mb-4 flex flex-col gap-3 border-b border-[var(--line)] pb-4 lg:flex-row lg:items-end lg:justify-between">
         <div>
           <p className="eyebrow mb-2">Public site scaffold</p>
-          <Link href="/" className="display-title text-3xl font-semibold text-[var(--forest)]">
-            {chapterProfile.shortName}
-          </Link>
+          <div className="flex items-center gap-3">
+            <Link
+              href="/"
+              className="relative block h-14 w-14 overflow-hidden rounded-full border border-[var(--line)] bg-white/90 p-1.5 transition hover:border-[var(--accent)]"
+            >
+              <Image
+                src="/veym-logo.png"
+                alt={`${chapterProfile.shortName} logo`}
+                fill
+                sizes="56px"
+                className="object-contain p-1"
+                priority
+              />
+            </Link>
+            <Link href="/" className="display-title text-3xl font-semibold text-[var(--forest)]">
+              {chapterProfile.shortName}
+            </Link>
+          </div>
           <p className="muted mt-2 max-w-2xl text-sm sm:text-base">
             {chapterProfile.name} public website baseline for announcements,
             schedule updates, and downloadable family resources.
@@ -103,7 +118,7 @@ export function PageHeader({
   aside,
 }: PageHeaderProps) {
   return (
-    <section className="grid gap-5 lg:grid-cols-[1.05fr_0.95fr]">
+    <section className="grid items-start gap-5 lg:grid-cols-[1.05fr_0.95fr]">
       <div className="panel rounded-[2rem] px-5 py-6 sm:px-7 sm:py-8">
         <p className="eyebrow mb-3">{eyebrow}</p>
         <h1 className="display-title max-w-3xl text-4xl font-semibold leading-tight text-[var(--forest)] sm:text-5xl">
@@ -114,7 +129,9 @@ export function PageHeader({
         {aside ? <div className="mt-6">{aside}</div> : null}
       </div>
 
-      <PhotoCard image={image} />
+      <div className="self-start">
+        <PhotoCard image={image} />
+      </div>
     </section>
   );
 }
