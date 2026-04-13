@@ -198,17 +198,31 @@ async function cleanupUploadedPublicAsset(
     .from("cms_media_assets")
     .delete()
     .eq("id", asset.id);
+
+  if (deleteMetadataError) {
+    if (options?.throwOnError) {
+      throw new Error(
+        deleteMetadataError.message || "The uploaded asset could not be cleaned up.",
+      );
+    }
+
+    if (process.env.NODE_ENV !== "test") {
+      console.warn("[cms] uploaded asset cleanup failed", deleteMetadataError);
+    }
+
+    return;
+  }
+
   const { error: removeStorageError } = await supabase.storage
     .from(asset.bucket)
     .remove([asset.storagePath]);
-  const cleanupError = deleteMetadataError ?? removeStorageError;
 
-  if (cleanupError && options?.throwOnError) {
-    throw new Error(cleanupError.message || "The uploaded asset could not be cleaned up.");
+  if (removeStorageError && options?.throwOnError) {
+    throw new Error(removeStorageError.message || "The uploaded asset could not be cleaned up.");
   }
 
-  if (cleanupError && !options?.throwOnError && process.env.NODE_ENV !== "test") {
-    console.warn("[cms] uploaded asset cleanup failed", cleanupError);
+  if (removeStorageError && !options?.throwOnError && process.env.NODE_ENV !== "test") {
+    console.warn("[cms] uploaded asset cleanup failed", removeStorageError);
   }
 }
 
@@ -461,9 +475,17 @@ export async function saveManagedPageAction(formData: FormData) {
       });
 
       if (isDuplicateKeySupabaseError(error)) {
+        const retryPublishedAt =
+          status === "published"
+            ? (await getExistingPublishedAt("cms_pages", { column: "slug", value: slug })) ??
+              getCurrentTimestampForStatus(status)
+            : null;
         const { error: retryUpdateError } = await supabase
           .from("cms_pages")
-          .update(payload)
+          .update({
+            ...payload,
+            published_at: retryPublishedAt,
+          })
           .eq("slug", slug);
         throwIfSupabaseError(retryUpdateError, "The managed page could not be updated.");
       } else {
