@@ -65,6 +65,8 @@ const mockedRevalidatePath = vi.mocked(revalidatePath);
 
 function buildSupabaseAdminClient(options?: {
   announcementInsertError?: { message: string } | null;
+  mediaDeleteError?: { message: string } | null;
+  removeStorageError?: { message: string } | null;
 }) {
   const mediaInsertSingle = vi.fn(async () => ({
     data: {
@@ -80,7 +82,7 @@ function buildSupabaseAdminClient(options?: {
     select: mediaInsertSelect,
   }));
   const mediaDeleteEq = vi.fn(async () => ({
-    error: null,
+    error: options?.mediaDeleteError ?? null,
   }));
   const mediaDelete = vi.fn(() => ({
     eq: mediaDeleteEq,
@@ -107,7 +109,7 @@ function buildSupabaseAdminClient(options?: {
     error: null,
   }));
   const remove = vi.fn(async () => ({
-    error: null,
+    error: options?.removeStorageError ?? null,
   }));
   const getPublicUrl = vi.fn((path: string) => ({
     data: {
@@ -181,30 +183,36 @@ function buildManagedPageFormData() {
 
 function buildManagedPageSupabaseClient(options?: {
   existingPageId?: string | null;
-  existingPublishedAt?: string | null;
   insertError?: { code?: string; message: string } | null;
+  publishedAtResponses?: Array<string | null>;
 }) {
-  const maybeSingle = vi
-    .fn()
-    .mockResolvedValueOnce({
-      data: options?.existingPublishedAt
-        ? { published_at: options.existingPublishedAt }
-        : null,
+  const publishedAtResponses = [...(options?.publishedAtResponses ?? [null])];
+  const publishedAtMaybeSingle = vi.fn(async () => {
+    const value = publishedAtResponses.shift() ?? null;
+
+    return {
+      data: value ? { published_at: value } : null,
       error: null,
-    })
-    .mockResolvedValueOnce({
-      data: options?.existingPageId ? { id: options.existingPageId } : null,
-      error: null,
-    });
-  const limit = vi.fn(() => ({
-    maybeSingle,
+    };
+  });
+  const idMaybeSingle = vi.fn(async () => ({
+    data: options?.existingPageId ? { id: options.existingPageId } : null,
+    error: null,
   }));
-  const eq = vi.fn(() => ({
-    limit,
-  }));
-  const select = vi.fn(() => ({
-    eq,
-  }));
+  const select = vi.fn((fields: string) => {
+    const maybeSingle =
+      fields === "published_at" ? publishedAtMaybeSingle : idMaybeSingle;
+    const limit = vi.fn(() => ({
+      maybeSingle,
+    }));
+    const eq = vi.fn(() => ({
+      limit,
+    }));
+
+    return {
+      eq,
+    };
+  });
   const updateEq = vi.fn(async () => ({
     error: null,
   }));
@@ -228,9 +236,9 @@ function buildManagedPageSupabaseClient(options?: {
   });
 
   return {
-    eq,
     insert,
-    maybeSingle,
+    idMaybeSingle,
+    publishedAtMaybeSingle,
     select,
     update,
     updateEq,
@@ -343,6 +351,22 @@ describe("saveAnnouncementAction", () => {
     expect(redirectUrl).toContain("/admin/announcements?error=insert%20failed");
   });
 
+  it("keeps the stored file when metadata cleanup fails after an insert error", async () => {
+    const supabase = buildSupabaseAdminClient({
+      announcementInsertError: { message: "insert failed" },
+      mediaDeleteError: { message: "delete metadata failed" },
+    });
+    mockedCreateSupabaseAdminClient.mockReturnValue(supabase.client as never);
+
+    const redirectUrl = await expectRedirect(() =>
+      saveAnnouncementAction(buildAnnouncementFormData()),
+    );
+
+    expect(supabase.mediaDeleteEq).toHaveBeenCalledWith("id", "asset-1");
+    expect(supabase.remove).not.toHaveBeenCalled();
+    expect(redirectUrl).toContain("/admin/announcements?error=insert%20failed");
+  });
+
   it("rejects unsupported attachment types with a friendly error before uploading", async () => {
     const supabase = buildSupabaseAdminClient();
     mockedCreateSupabaseAdminClient.mockReturnValue(supabase.client as never);
@@ -412,6 +436,7 @@ describe("saveManagedPageAction", () => {
         code: "23505",
         message: 'duplicate key value violates unique constraint "cms_pages_slug_key"',
       },
+      publishedAtResponses: [null, "2026-04-01T08:00:00.000Z"],
     });
     mockedCreateSupabaseAdminClient.mockReturnValue(supabase.client as never);
 
@@ -422,13 +447,14 @@ describe("saveManagedPageAction", () => {
     expect(supabase.insert).toHaveBeenCalledTimes(1);
     expect(supabase.update).toHaveBeenCalledWith(
       expect.objectContaining({
-        published_at: expect.any(String),
+        published_at: "2026-04-01T08:00:00.000Z",
         slug: "home",
         status: "published",
         updated_by: "user-1",
       }),
     );
     expect(supabase.updateEq).toHaveBeenCalledWith("slug", "home");
+    expect(supabase.publishedAtMaybeSingle).toHaveBeenCalledTimes(2);
     expect(mockedRevalidatePath).toHaveBeenCalledWith("/admin/pages");
     expect(redirectUrl).toContain("/admin/pages?notice=");
   });

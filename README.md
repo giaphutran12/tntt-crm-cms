@@ -70,6 +70,12 @@ pnpm dev
 
 The public shell lives at `/`. Staff auth lives at `/auth/sign-in` and `/auth/sign-up`, and the admin CMS shell lives at `/admin`.
 
+Current role tiers:
+
+- `editor` can manage public-facing CMS content
+- `operations` can manage CMS content plus CRM-sensitive family/student/registration records
+- `admin` can manage content, CRM access, and staff role assignments in `/admin/settings`
+
 ## Representative demo data
 
 Running the checked-in migrations also seeds representative local-development data for ticket validation:
@@ -96,8 +102,10 @@ SQL migrations are checked in under [`supabase/migrations`](./supabase/migration
 - app-level staff roles: `editor`, `operations`, `admin`
 - `public.app_users` linked to `auth.users`
 - a trigger that provisions every new auth account as `editor` by default
+- row-level security helpers and policies across app tables plus storage buckets
 - the `public-media` and `private-registration-files` storage buckets
 - CMS tables for announcements, managed pages, schedule items, resources, and uploaded media assets
+- an audit trail for staff role changes
 - representative demo CMS and CRM records for local review
 
 If you are using the Supabase CLI locally, a typical bootstrap flow is:
@@ -117,5 +125,6 @@ This scaffold does **not** expose public signup. The implemented V1 flow is:
 2. Require a shared chapter access password before revealing the real sign-up form.
 3. Complete Supabase email/password sign-up.
 4. Provision the new account as `Editor` by default in the app database and auth metadata.
+5. Promote staff to `Operations` or `Admin` from `/admin/settings` when they need CRM or access-management privileges.
 
 Staff sign-in uses Supabase email/password, preserves safe `/admin` next-path redirects, and keeps public visitors outside the protected admin routes.

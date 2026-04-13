@@ -810,9 +810,11 @@ function RegistrationCycleForm({ cycle }: { cycle?: CrmRegistrationCycle }) {
 }
 
 export async function CrmSectionContent({
+  currentUserId,
   searchParams,
   section,
 }: {
+  currentUserId: string;
   searchParams: SectionSearchParams;
   section: string;
 }) {
@@ -827,22 +829,28 @@ export async function CrmSectionContent({
 
   switch (section) {
     case "families":
-      return <FamiliesSection searchParams={searchParams} />;
+      return <FamiliesSection currentUserId={currentUserId} searchParams={searchParams} />;
     case "students":
-      return <StudentsSection searchParams={searchParams} />;
+      return <StudentsSection currentUserId={currentUserId} searchParams={searchParams} />;
     case "divisions-classes":
-      return <DivisionsClassesSection searchParams={searchParams} />;
+      return <DivisionsClassesSection currentUserId={currentUserId} searchParams={searchParams} />;
     case "registration-cycles":
-      return <RegistrationCyclesSection searchParams={searchParams} />;
+      return <RegistrationCyclesSection currentUserId={currentUserId} searchParams={searchParams} />;
     case "exports":
-      return <ExportsSection searchParams={searchParams} />;
+      return <ExportsSection currentUserId={currentUserId} searchParams={searchParams} />;
     default:
       return null;
   }
 }
 
-async function FamiliesSection({ searchParams }: { searchParams: SectionSearchParams }) {
-  const families = await listFamiliesForAdmin();
+async function FamiliesSection({
+  currentUserId,
+  searchParams,
+}: {
+  currentUserId: string;
+  searchParams: SectionSearchParams;
+}) {
+  const families = await listFamiliesForAdmin({ userId: currentUserId });
 
   return (
     <section className="space-y-6">
@@ -901,14 +909,20 @@ async function FamiliesSection({ searchParams }: { searchParams: SectionSearchPa
   );
 }
 
-async function StudentsSection({ searchParams }: { searchParams: SectionSearchParams }) {
+async function StudentsSection({
+  currentUserId,
+  searchParams,
+}: {
+  currentUserId: string;
+  searchParams: SectionSearchParams;
+}) {
   const [families, students, divisions, classGroups, cycles, registrations] = await Promise.all([
-    listFamiliesForAdmin(),
-    listStudentsForAdmin(),
-    listDivisionLevelsForAdmin(),
-    listClassGroupsForAdmin(),
-    listRegistrationCyclesForAdmin(),
-    listStudentRegistrationsForAdmin(),
+    listFamiliesForAdmin({ userId: currentUserId }),
+    listStudentsForAdmin({ userId: currentUserId }),
+    listDivisionLevelsForAdmin({ userId: currentUserId }),
+    listClassGroupsForAdmin({ userId: currentUserId }),
+    listRegistrationCyclesForAdmin({ userId: currentUserId }),
+    listStudentRegistrationsForAdmin({ userId: currentUserId }),
   ]);
 
   return (
@@ -1055,10 +1069,16 @@ async function StudentsSection({ searchParams }: { searchParams: SectionSearchPa
   );
 }
 
-async function DivisionsClassesSection({ searchParams }: { searchParams: SectionSearchParams }) {
+async function DivisionsClassesSection({
+  currentUserId,
+  searchParams,
+}: {
+  currentUserId: string;
+  searchParams: SectionSearchParams;
+}) {
   const [divisions, classGroups] = await Promise.all([
-    listDivisionLevelsForAdmin(),
-    listClassGroupsForAdmin(),
+    listDivisionLevelsForAdmin({ userId: currentUserId }),
+    listClassGroupsForAdmin({ userId: currentUserId }),
   ]);
 
   return (
@@ -1146,11 +1166,13 @@ async function DivisionsClassesSection({ searchParams }: { searchParams: Section
 }
 
 async function RegistrationCyclesSection({
+  currentUserId,
   searchParams,
 }: {
+  currentUserId: string;
   searchParams: SectionSearchParams;
 }) {
-  const cycles = await listRegistrationCyclesForAdmin();
+  const cycles = await listRegistrationCyclesForAdmin({ userId: currentUserId });
 
   return (
     <section className="space-y-6">
@@ -1201,11 +1223,17 @@ async function RegistrationCyclesSection({
   );
 }
 
-async function ExportsSection({ searchParams }: { searchParams: SectionSearchParams }) {
+async function ExportsSection({
+  currentUserId,
+  searchParams,
+}: {
+  currentUserId: string;
+  searchParams: SectionSearchParams;
+}) {
   const [cycles, divisions, classGroups] = await Promise.all([
-    listRegistrationCyclesForAdmin(),
-    listDivisionLevelsForAdmin(),
-    listClassGroupsForAdmin(),
+    listRegistrationCyclesForAdmin({ userId: currentUserId }),
+    listDivisionLevelsForAdmin({ userId: currentUserId }),
+    listClassGroupsForAdmin({ userId: currentUserId }),
   ]);
   const rawFilters = parseCrmRosterFilters({
     attention: getSearchParamValue(searchParams.attention) ?? null,
@@ -1216,7 +1244,7 @@ async function ExportsSection({ searchParams }: { searchParams: SectionSearchPar
     team: getSearchParamValue(searchParams.team) ?? null,
   });
   const filters = applyDefaultRosterCycle(rawFilters, cycles);
-  const records = await listRosterRecordsForAdmin(filters);
+  const records = await listRosterRecordsForAdmin(filters, { userId: currentUserId });
   const exportQuery = buildRosterQueryString(filters);
   const needsAttentionCount = records.filter((record) => record.needsAttention).length;
   const missingPlacementCount = records.filter(

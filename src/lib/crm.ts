@@ -214,6 +214,10 @@ export type CrmRosterRecord = {
   totalPaid: string | null;
 };
 
+type CrmDbAccessContext = {
+  userId: string;
+};
+
 type CrmGuardianRow = {
   created_at: string;
   email: string | null;
@@ -801,7 +805,7 @@ export function serializeRosterRecordsToCsv(records: CrmRosterRecord[]) {
   return [headers.map(toCsvValue).join(","), ...rows].join("\n");
 }
 
-export async function listFamiliesForAdmin() {
+export async function listFamiliesForAdmin(accessContext: CrmDbAccessContext) {
   const [familyResult, guardianResult, studentCountResult] = await Promise.all([
     query<CrmFamilyRow>(`
       select
@@ -816,7 +820,7 @@ export async function listFamiliesForAdmin() {
         updated_at::text as updated_at
       from public.crm_families
       order by household_name asc, created_at asc
-    `),
+    `, [], accessContext),
     query<CrmGuardianRow>(`
       select
         id::text as id,
@@ -832,7 +836,7 @@ export async function listFamiliesForAdmin() {
         updated_at::text as updated_at
       from public.crm_guardians
       order by family_id asc, is_primary_contact desc, sort_order asc, full_name asc
-    `),
+    `, [], accessContext),
     query<CrmFamilyStudentCountRow>(`
       select
         family_id::text as family_id,
@@ -840,7 +844,7 @@ export async function listFamiliesForAdmin() {
       from public.crm_students
       where family_id is not null
       group by family_id
-    `),
+    `, [], accessContext),
   ]);
 
   const guardiansByFamily = new Map<string, CrmGuardian[]>();
@@ -861,7 +865,7 @@ export async function listFamiliesForAdmin() {
   );
 }
 
-export async function listStudentsForAdmin() {
+export async function listStudentsForAdmin(accessContext: CrmDbAccessContext) {
   const [studentResult, guardianResult, registrationCountResult] = await Promise.all([
     query<CrmStudentRow>(`
       select
@@ -887,7 +891,7 @@ export async function listStudentsForAdmin() {
       left join public.crm_families family
         on family.id = student.family_id
       order by student.legal_last_name asc, student.legal_first_name asc
-    `),
+    `, [], accessContext),
     query<CrmStudentGuardianRow>(`
       select
         link.student_id::text as student_id,
@@ -906,14 +910,14 @@ export async function listStudentsForAdmin() {
       inner join public.crm_guardians guardian
         on guardian.id = link.guardian_id
       order by link.student_id asc, guardian.is_primary_contact desc, guardian.sort_order asc, guardian.full_name asc
-    `),
+    `, [], accessContext),
     query<CrmStudentRegistrationCountRow>(`
       select
         student_id::text as student_id,
         count(*)::int as registration_count
       from public.crm_student_registrations
       group by student_id
-    `),
+    `, [], accessContext),
   ]);
 
   const guardiansByStudent = new Map<string, CrmGuardian[]>();
@@ -934,7 +938,7 @@ export async function listStudentsForAdmin() {
   );
 }
 
-export async function listDivisionLevelsForAdmin() {
+export async function listDivisionLevelsForAdmin(accessContext: CrmDbAccessContext) {
   const result = await query<CrmDivisionLevelRow>(`
     select
       division.id::text as id,
@@ -952,12 +956,12 @@ export async function listDivisionLevelsForAdmin() {
       on registration.division_level_id = division.id
     group by division.id
     order by division.sort_order asc, division.code asc
-  `);
+  `, [], accessContext);
 
   return result.rows.map(mapDivisionLevel);
 }
 
-export async function listClassGroupsForAdmin() {
+export async function listClassGroupsForAdmin(accessContext: CrmDbAccessContext) {
   const result = await query<CrmClassGroupRow>(`
     select
       class_group.id::text as id,
@@ -979,12 +983,12 @@ export async function listClassGroupsForAdmin() {
       on registration.class_group_id = class_group.id
     group by class_group.id, division.code, division.label
     order by class_group.sort_order asc, class_group.name asc
-  `);
+  `, [], accessContext);
 
   return result.rows.map(mapClassGroup);
 }
 
-export async function listRegistrationCyclesForAdmin() {
+export async function listRegistrationCyclesForAdmin(accessContext: CrmDbAccessContext) {
   const result = await query<CrmRegistrationCycleRow>(`
     select
       cycle.id::text as id,
@@ -1003,12 +1007,14 @@ export async function listRegistrationCyclesForAdmin() {
       on registration.registration_cycle_id = cycle.id
     group by cycle.id
     order by cycle.school_year_label desc, cycle.created_at desc
-  `);
+  `, [], accessContext);
 
   return result.rows.map(mapRegistrationCycle);
 }
 
-export async function listStudentRegistrationsForAdmin() {
+export async function listStudentRegistrationsForAdmin(
+  accessContext: CrmDbAccessContext,
+) {
   const registrationResult = await query<CrmStudentRegistrationRow>(`
     select
       registration.id::text as id,
@@ -1056,7 +1062,7 @@ export async function listStudentRegistrationsForAdmin() {
     left join public.crm_class_groups class_group
       on class_group.id = registration.class_group_id
     order by cycle.school_year_label desc, student.legal_last_name asc, student.legal_first_name asc
-  `);
+  `, [], accessContext);
 
   const registrationIds = registrationResult.rows.map((row) => row.id);
   const attachmentsByRegistration = new Map<string, CrmRegistrationAttachment[]>();
@@ -1079,6 +1085,7 @@ export async function listStudentRegistrationsForAdmin() {
         order by created_at asc, label asc
       `,
       [registrationIds],
+      accessContext,
     );
 
     for (const attachmentRow of attachmentResult.rows) {
@@ -1094,7 +1101,10 @@ export async function listStudentRegistrationsForAdmin() {
   );
 }
 
-export async function listRosterRecordsForAdmin(filters: CrmRosterFilters) {
+export async function listRosterRecordsForAdmin(
+  filters: CrmRosterFilters,
+  accessContext: CrmDbAccessContext,
+) {
   const result = await query<CrmRosterRow>(
     `
       select
@@ -1169,6 +1179,7 @@ export async function listRosterRecordsForAdmin(filters: CrmRosterFilters) {
       filters.registrationStatus,
       filters.team,
     ],
+    accessContext,
   );
 
   return applyRosterAttentionFilter(result.rows.map(mapRosterRecord), filters.attention);

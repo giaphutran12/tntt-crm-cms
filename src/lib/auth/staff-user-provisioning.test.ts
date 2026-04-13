@@ -1,10 +1,14 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import {
+  listStaffAccessRecords,
+  listStaffRoleChangeRecords,
   getStaffRoleMetadata,
   isAppUserAuthForeignKeyRace,
+  normalizeRequestedStaffRole,
   provisionStaffUser,
   retryAppUserUpsert,
+  updateStaffRole,
 } from "./staff-user-provisioning";
 
 vi.mock("@/lib/supabase/admin", () => ({
@@ -14,10 +18,31 @@ vi.mock("@/lib/supabase/admin", () => ({
 const mockedCreateSupabaseAdminClient = vi.mocked(createSupabaseAdminClient);
 
 function buildSupabaseAdminClient(options?: {
-  existingAppUser?: {
+  adminCount?: number;
+  appUsers?: Array<{
+    created_at?: string;
     display_name: string | null;
     email: string | null;
+    id: string;
     role: "editor" | "operations" | "admin";
+    updated_at?: string;
+  }>;
+  auditEntries?: Array<{
+    actor: Array<{ display_name: string | null; email: string | null }> | null;
+    created_at: string;
+    id: string;
+    new_role: "editor" | "operations" | "admin";
+    note: string | null;
+    old_role: "editor" | "operations" | "admin";
+    subject: Array<{ display_name: string | null; email: string | null }> | null;
+  }>;
+  existingAppUser?: {
+    created_at?: string;
+    display_name: string | null;
+    email: string | null;
+    id?: string;
+    role: "editor" | "operations" | "admin";
+    updated_at?: string;
   } | null;
   existingUser?: {
     app_metadata: Record<string, unknown>;
@@ -55,24 +80,115 @@ function buildSupabaseAdminClient(options?: {
     data: { user: null },
     error: null,
   }));
-  const maybeSingle = vi.fn(async () => ({
-    data: options?.existingAppUser ?? null,
+  const appUsers =
+    options?.appUsers ??
+    (options?.existingAppUser
+      ? [
+          {
+            id: options.existingAppUser.id ?? "user-1",
+            created_at: options.existingAppUser.created_at ?? "2026-04-13T00:00:00.000Z",
+            updated_at: options.existingAppUser.updated_at ?? "2026-04-13T00:00:00.000Z",
+            ...options.existingAppUser,
+          },
+        ]
+      : []);
+  const appUsersById = new Map(appUsers.map((record) => [record.id, record]));
+  const updateEq = vi.fn(async (_column: string, value: string) => ({
+    data: appUsersById.get(value)
+      ? {
+          ...appUsersById.get(value),
+          role: pendingRoleUpdate ?? appUsersById.get(value)?.role,
+        }
+      : null,
     error: null,
   }));
-  const eq = vi.fn(() => ({
-    maybeSingle,
+  let pendingRoleUpdate: "editor" | "operations" | "admin" | null = null;
+  const update = vi.fn((payload: { role?: "editor" | "operations" | "admin" }) => {
+    pendingRoleUpdate = payload.role ?? null;
+    return {
+      eq: vi.fn((_column: string, value: string) => ({
+        select: vi.fn(() => ({
+          single: vi.fn(async () => ({
+            data: appUsersById.get(value)
+              ? {
+                  ...appUsersById.get(value),
+                  role: pendingRoleUpdate ?? appUsersById.get(value)?.role,
+                }
+              : null,
+            error: null,
+          })),
+        })),
+      })),
+    };
+  });
+  const insert = vi.fn(async () => ({
+    data: null,
+    error: null,
   }));
-  const select = vi.fn(() => ({
-    eq,
+  const order = vi.fn(() => ({
+    limit: vi.fn(async () => ({
+      data: options?.auditEntries ?? [],
+      error: null,
+    })),
   }));
+  const select = vi.fn((columns?: string, selectOptions?: { count?: "exact"; head?: boolean }) => {
+    if (selectOptions?.head) {
+      return {
+        eq: vi.fn(async () => ({
+          count: options?.adminCount ?? appUsers.filter((record) => record.role === "admin").length,
+          error: null,
+        })),
+      };
+    }
+
+    if (columns?.includes("old_role")) {
+      return {
+        order,
+        data: options?.auditEntries ?? [],
+        error: null,
+      };
+    }
+
+    return {
+      data: appUsers,
+      error: null,
+      eq: vi.fn((_column: string, value: string) => ({
+        maybeSingle: vi.fn(async () => ({
+          data: appUsersById.get(value) ?? null,
+          error: null,
+        })),
+      })),
+      order: vi.fn(async () => ({
+        data: appUsers,
+        error: null,
+      })),
+    };
+  });
   const upsert = vi.fn(async () => ({
     data: null,
     error: options?.upsertError ?? null,
   }));
-  const from = vi.fn(() => ({
-    select,
-    upsert,
-  }));
+  const from = vi.fn((table: string) => {
+    switch (table) {
+      case "app_users":
+        return {
+          insert,
+          select,
+          update,
+          upsert,
+        };
+      case "app_user_role_changes":
+        return {
+          insert,
+          select,
+        };
+      default:
+        return {
+          select,
+          upsert,
+        };
+    }
+  });
 
   return {
     auth: {
@@ -83,6 +199,9 @@ function buildSupabaseAdminClient(options?: {
       },
     },
     from,
+    insert,
+    update,
+    updateEq,
   };
 }
 
@@ -220,7 +339,7 @@ describe("provisionStaffUser", () => {
         name: "Staff User",
       },
     });
-    expect(supabaseAdminClient.from().upsert).toHaveBeenCalledWith(
+    expect(supabaseAdminClient.from("app_users").upsert).toHaveBeenCalledWith(
       {
         id: "user-1",
         email: "staff@example.com",
@@ -274,6 +393,171 @@ describe("getStaffRoleMetadata", () => {
       app_role: "editor",
       role: "editor",
     });
+  });
+});
+
+describe("normalizeRequestedStaffRole", () => {
+  it("accepts only the supported role tiers", () => {
+    expect(normalizeRequestedStaffRole("editor")).toBe("editor");
+    expect(normalizeRequestedStaffRole("operations")).toBe("operations");
+    expect(normalizeRequestedStaffRole("admin")).toBe("admin");
+    expect(normalizeRequestedStaffRole("owner")).toBeNull();
+  });
+});
+
+describe("listStaffAccessRecords", () => {
+  it("returns staff sorted by role tier and identity", async () => {
+    const supabaseAdminClient = buildSupabaseAdminClient({
+      appUsers: [
+        {
+          id: "user-2",
+          email: "editor@example.com",
+          role: "editor",
+          display_name: "Editor User",
+          created_at: "2026-04-13T00:00:00.000Z",
+          updated_at: "2026-04-13T00:00:00.000Z",
+        },
+        {
+          id: "user-1",
+          email: "admin@example.com",
+          role: "admin",
+          display_name: "Admin User",
+          created_at: "2026-04-13T00:00:00.000Z",
+          updated_at: "2026-04-13T00:00:00.000Z",
+        },
+      ],
+    });
+    mockedCreateSupabaseAdminClient.mockReturnValue(supabaseAdminClient as never);
+
+    await expect(listStaffAccessRecords()).resolves.toEqual([
+      {
+        createdAt: "2026-04-13T00:00:00.000Z",
+        displayName: "Admin User",
+        email: "admin@example.com",
+        id: "user-1",
+        role: "admin",
+        updatedAt: "2026-04-13T00:00:00.000Z",
+      },
+      {
+        createdAt: "2026-04-13T00:00:00.000Z",
+        displayName: "Editor User",
+        email: "editor@example.com",
+        id: "user-2",
+        role: "editor",
+        updatedAt: "2026-04-13T00:00:00.000Z",
+      },
+    ]);
+  });
+});
+
+describe("listStaffRoleChangeRecords", () => {
+  it("maps recent audit entries into admin-friendly records", async () => {
+    const supabaseAdminClient = buildSupabaseAdminClient({
+      auditEntries: [
+        {
+          actor: [{ display_name: "Admin User", email: "admin@example.com" }],
+          created_at: "2026-04-13T00:00:00.000Z",
+          id: "change-1",
+          new_role: "operations",
+          note: "Roster season",
+          old_role: "editor",
+          subject: [{ display_name: "Editor User", email: "editor@example.com" }],
+        },
+      ],
+    });
+    mockedCreateSupabaseAdminClient.mockReturnValue(supabaseAdminClient as never);
+
+    await expect(listStaffRoleChangeRecords(10)).resolves.toEqual([
+      {
+        actorDisplayName: "Admin User",
+        actorEmail: "admin@example.com",
+        createdAt: "2026-04-13T00:00:00.000Z",
+        id: "change-1",
+        newRole: "operations",
+        note: "Roster season",
+        oldRole: "editor",
+        subjectDisplayName: "Editor User",
+        subjectEmail: "editor@example.com",
+      },
+    ]);
+  });
+});
+
+describe("updateStaffRole", () => {
+  it("updates the target role and writes an audit entry", async () => {
+    const supabaseAdminClient = buildSupabaseAdminClient({
+      adminCount: 2,
+      appUsers: [
+        {
+          id: "user-1",
+          email: "admin@example.com",
+          role: "admin",
+          display_name: "Admin User",
+          created_at: "2026-04-13T00:00:00.000Z",
+          updated_at: "2026-04-13T00:00:00.000Z",
+        },
+        {
+          id: "user-2",
+          email: "editor@example.com",
+          role: "editor",
+          display_name: "Editor User",
+          created_at: "2026-04-13T00:00:00.000Z",
+          updated_at: "2026-04-13T00:00:00.000Z",
+        },
+      ],
+      existingUser: {
+        id: "user-2",
+        email: "editor@example.com",
+        app_metadata: {},
+        user_metadata: {},
+      },
+    });
+    mockedCreateSupabaseAdminClient.mockReturnValue(supabaseAdminClient as never);
+
+    const result = await updateStaffRole({
+      actingUserId: "user-1",
+      nextRole: "operations",
+      note: "Roster season",
+      subjectUserId: "user-2",
+    });
+
+    expect(result.changed).toBe(true);
+    expect(supabaseAdminClient.auth.admin.updateUserById).toHaveBeenCalledWith("user-2", {
+      app_metadata: {
+        app_role: "operations",
+        role: "operations",
+      },
+    });
+    expect(supabaseAdminClient.update).toHaveBeenCalledWith({ role: "operations" });
+    expect(supabaseAdminClient.insert).toHaveBeenCalledWith({
+      actor_user_id: "user-1",
+      subject_user_id: "user-2",
+      old_role: "editor",
+      new_role: "operations",
+      note: "Roster season",
+    });
+  });
+
+  it("blocks self-demotion", async () => {
+    const supabaseAdminClient = buildSupabaseAdminClient({
+      existingAppUser: {
+        id: "user-1",
+        email: "admin@example.com",
+        role: "admin",
+        display_name: "Admin User",
+        created_at: "2026-04-13T00:00:00.000Z",
+        updated_at: "2026-04-13T00:00:00.000Z",
+      },
+    });
+    mockedCreateSupabaseAdminClient.mockReturnValue(supabaseAdminClient as never);
+
+    await expect(
+      updateStaffRole({
+        actingUserId: "user-1",
+        nextRole: "editor",
+        subjectUserId: "user-1",
+      }),
+    ).rejects.toThrow("Use another admin account to change your own role.");
   });
 });
 

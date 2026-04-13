@@ -27,7 +27,9 @@ export async function GET(request: NextRequest) {
     return new NextResponse("Forbidden", { status: 403 });
   }
 
-  const cycles = await listRegistrationCyclesForAdmin();
+  const cycles = await listRegistrationCyclesForAdmin({
+    userId: access.currentUser.id,
+  });
   const filters = applyDefaultRosterCycle(
     parseCrmRosterFilters({
       attention: request.nextUrl.searchParams.get("attention"),
@@ -39,7 +41,9 @@ export async function GET(request: NextRequest) {
     }),
     cycles,
   );
-  const records = await listRosterRecordsForAdmin(filters);
+  const records = await listRosterRecordsForAdmin(filters, {
+    userId: access.currentUser.id,
+  });
   const cycleLabel =
     cycles.find((cycle) => cycle.id === filters.cycleId)?.schoolYearLabel ?? null;
 
