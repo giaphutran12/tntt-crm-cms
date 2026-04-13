@@ -1,5 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { saveAnnouncementAction, saveMediaAssetAction } from "./actions";
+import {
+  saveAnnouncementAction,
+  saveManagedPageAction,
+  saveMediaAssetAction,
+} from "./actions";
 import { requireMinimumRole } from "@/lib/auth/session";
 import { provisionStaffUser } from "@/lib/auth/staff-user-provisioning";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
@@ -163,6 +167,82 @@ function buildMediaAssetFormData(
   return formData;
 }
 
+function buildManagedPageFormData() {
+  const formData = new FormData();
+
+  formData.append("slug", "home");
+  formData.append("titleEn", "Homepage");
+  formData.append("summaryEn", "Homepage summary");
+  formData.append("bodyEn", "Homepage body");
+  formData.append("status", "published");
+
+  return formData;
+}
+
+function buildManagedPageSupabaseClient(options?: {
+  existingPageId?: string | null;
+  existingPublishedAt?: string | null;
+  insertError?: { code?: string; message: string } | null;
+}) {
+  const maybeSingle = vi
+    .fn()
+    .mockResolvedValueOnce({
+      data: options?.existingPublishedAt
+        ? { published_at: options.existingPublishedAt }
+        : null,
+      error: null,
+    })
+    .mockResolvedValueOnce({
+      data: options?.existingPageId ? { id: options.existingPageId } : null,
+      error: null,
+    });
+  const limit = vi.fn(() => ({
+    maybeSingle,
+  }));
+  const eq = vi.fn(() => ({
+    limit,
+  }));
+  const select = vi.fn(() => ({
+    eq,
+  }));
+  const updateEq = vi.fn(async () => ({
+    error: null,
+  }));
+  const update = vi.fn(() => ({
+    eq: updateEq,
+  }));
+  const insert = vi.fn(async () => ({
+    error: options?.insertError ?? null,
+  }));
+  const from = vi.fn((table: string) => {
+    switch (table) {
+      case "cms_pages":
+        return {
+          insert,
+          select,
+          update,
+        };
+      default:
+        throw new Error(`Unexpected table: ${table}`);
+    }
+  });
+
+  return {
+    eq,
+    insert,
+    maybeSingle,
+    select,
+    update,
+    updateEq,
+    client: {
+      from,
+      storage: {
+        from: vi.fn(),
+      },
+    },
+  };
+}
+
 async function expectRedirect(action: () => Promise<void>) {
   try {
     await action();
@@ -322,5 +402,34 @@ describe("saveMediaAssetAction", () => {
     expect(decodeURIComponent(redirectUrl)).toContain(
       "Video uploads are not supported in the CMS yet.",
     );
+  });
+});
+
+describe("saveManagedPageAction", () => {
+  it("falls back to an update when a concurrent insert wins the slug race", async () => {
+    const supabase = buildManagedPageSupabaseClient({
+      insertError: {
+        code: "23505",
+        message: 'duplicate key value violates unique constraint "cms_pages_slug_key"',
+      },
+    });
+    mockedCreateSupabaseAdminClient.mockReturnValue(supabase.client as never);
+
+    const redirectUrl = await expectRedirect(() =>
+      saveManagedPageAction(buildManagedPageFormData()),
+    );
+
+    expect(supabase.insert).toHaveBeenCalledTimes(1);
+    expect(supabase.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        published_at: expect.any(String),
+        slug: "home",
+        status: "published",
+        updated_by: "user-1",
+      }),
+    );
+    expect(supabase.updateEq).toHaveBeenCalledWith("slug", "home");
+    expect(mockedRevalidatePath).toHaveBeenCalledWith("/admin/pages");
+    expect(redirectUrl).toContain("/admin/pages?notice=");
   });
 });

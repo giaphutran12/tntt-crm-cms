@@ -154,8 +154,17 @@ function getCmsClient() {
   return createSupabaseAdminClient();
 }
 
+type SupabaseErrorLike = {
+  code?: string;
+  message: string;
+} | null;
+
+function isDuplicateKeySupabaseError(error: SupabaseErrorLike) {
+  return error?.code === "23505";
+}
+
 function throwIfSupabaseError(
-  error: { message: string } | null,
+  error: SupabaseErrorLike,
   fallbackMessage: string,
 ) {
   if (error) {
@@ -450,7 +459,16 @@ export async function saveManagedPageAction(formData: FormData) {
         ...payload,
         created_by: currentUser.id,
       });
-      throwIfSupabaseError(error, "The managed page could not be created.");
+
+      if (isDuplicateKeySupabaseError(error)) {
+        const { error: retryUpdateError } = await supabase
+          .from("cms_pages")
+          .update(payload)
+          .eq("slug", slug);
+        throwIfSupabaseError(retryUpdateError, "The managed page could not be updated.");
+      } else {
+        throwIfSupabaseError(error, "The managed page could not be created.");
+      }
     }
 
     revalidateCmsPaths();
