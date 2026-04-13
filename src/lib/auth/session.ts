@@ -1,11 +1,10 @@
 import "server-only";
 
-import type { User } from "@supabase/supabase-js";
+import type { SupabaseClient, User } from "@supabase/supabase-js";
 import { cache } from "react";
 import { redirect } from "next/navigation";
-import { isDatabaseConfigured, isSupabaseConfigured } from "@/lib/env";
+import { isSupabaseConfigured } from "@/lib/env";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
-import { query } from "@/server/db";
 import {
   DEFAULT_APP_ROLE,
   getRoleDescription,
@@ -43,24 +42,22 @@ function getSafeRedirectPath(
   return nextPath;
 }
 
-async function getRoleFromDatabase(userId: string) {
-  if (!isDatabaseConfigured()) {
-    return null;
-  }
-
+async function getRoleFromAppUserTable(
+  supabase: SupabaseClient,
+  userId: string,
+) {
   try {
-    const result = await query<{ role: string }>(
-      `
-        select role::text as role
-        from public.app_users
-        where id = $1
-        limit 1
-      `,
-      [userId],
-      { userId },
-    );
+    const { data, error } = await supabase
+      .from("app_users")
+      .select("role")
+      .eq("id", userId)
+      .maybeSingle<{ role: string | null }>();
 
-    return normalizeAppRole(result.rows[0]?.role ?? null);
+    if (error) {
+      throw error;
+    }
+
+    return normalizeAppRole(data?.role ?? null);
   } catch {
     return null;
   }
@@ -82,8 +79,11 @@ function getRoleFromUser(user: User): AppRole {
   return DEFAULT_APP_ROLE;
 }
 
-async function toAppUser(user: User): Promise<AppUser> {
-  const role = (await getRoleFromDatabase(user.id)) ?? getRoleFromUser(user);
+async function toAppUser(
+  user: User,
+  supabase: SupabaseClient,
+): Promise<AppUser> {
+  const role = (await getRoleFromAppUserTable(supabase, user.id)) ?? getRoleFromUser(user);
   const name =
     typeof user.user_metadata.full_name === "string"
       ? user.user_metadata.full_name
@@ -125,7 +125,7 @@ export const getCurrentAppUser = cache(async (): Promise<AppUser | null> => {
     return null;
   }
 
-  return toAppUser(user);
+  return toAppUser(user, supabase);
 });
 
 export async function requireAuthenticatedAppUser(nextPath?: string) {
