@@ -2,6 +2,16 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.2.1] - 2026-04-13
+
+### Added
+
+- A linked VEYM logo in the public-site header so visitors and staff can jump back to the homepage from any public route.
+
+### Fixed
+
+- Public page lead images no longer leave a large blank card area under the image when the adjacent text column is taller.
+
 ## [0.2.0] - 2026-04-13
 
 ### Added
