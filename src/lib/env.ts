@@ -40,6 +40,10 @@ export function isSupabaseConfigured() {
   return Boolean(env.NEXT_PUBLIC_SUPABASE_URL && getSupabasePublishableKey(env));
 }
 
+export function isCmsConfigured() {
+  return isSupabaseConfigured() && hasSupabaseServiceRoleKey();
+}
+
 export function isDatabaseConfigured() {
   return Boolean(getOptionalServerEnv().DATABASE_URL);
 }

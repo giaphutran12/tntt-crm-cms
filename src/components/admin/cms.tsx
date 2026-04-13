@@ -21,7 +21,7 @@ import {
   type CmsResource,
   type CmsScheduleItem,
 } from "@/lib/cms";
-import { getOptionalServerEnv, isDatabaseConfigured } from "@/lib/env";
+import { getOptionalServerEnv, isCmsConfigured } from "@/lib/env";
 import {
   deleteAnnouncementAction,
   deleteMediaAssetAction,
@@ -65,17 +65,18 @@ function NoticeBanner({ error, notice }: SectionSearchParams) {
   );
 }
 
-function DatabaseRequiredPanel() {
+function CmsConfigRequiredPanel() {
   return (
     <section className="panel rounded-[2rem] px-6 py-8 md:px-8">
       <p className="eyebrow mb-3">CMS unavailable</p>
       <h2 className="display-title text-3xl font-semibold text-[var(--forest)]">
-        The content workflow needs a live Postgres connection.
+        The content workflow needs the hosted Supabase CMS environment.
       </h2>
       <p className="muted mt-4 max-w-3xl text-base md:text-lg">
-        The admin screens are rendered, but `DATABASE_URL` is missing in this environment,
-        so content records cannot be saved yet. Add the database connection, run the checked-in
-        migrations, then come back to publish announcements, schedule items, resources, and pages.
+        The admin screens are rendered, but the Supabase URL, publishable key, or service role key
+        is missing in this environment, so content records cannot be saved yet. Point auth, storage,
+        and CMS writes at the same Supabase project, then come back to publish announcements,
+        schedule items, resources, and pages.
       </p>
     </section>
   );
@@ -174,8 +175,8 @@ function EmptyState({
 }
 
 export async function CmsDashboardPanel() {
-  if (!isDatabaseConfigured()) {
-    return <DatabaseRequiredPanel />;
+  if (!isCmsConfigured()) {
+    return <CmsConfigRequiredPanel />;
   }
 
   const snapshot = await getCmsDashboardSummary();
@@ -687,11 +688,11 @@ export async function CmsSectionContent({
   searchParams: SectionSearchParams;
   section: string;
 }) {
-  if (!isDatabaseConfigured()) {
+  if (!isCmsConfigured()) {
     return (
       <section className="space-y-6">
         <NoticeBanner {...searchParams} />
-        <DatabaseRequiredPanel />
+        <CmsConfigRequiredPanel />
       </section>
     );
   }

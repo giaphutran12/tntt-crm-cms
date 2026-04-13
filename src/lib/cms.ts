@@ -1,6 +1,6 @@
 import "server-only";
 
-import { isDatabaseConfigured } from "@/lib/env";
+import { isCmsConfigured } from "@/lib/env";
 import {
   announcementPreviews,
   contactCards,
@@ -8,7 +8,7 @@ import {
   upcomingDates,
   weeklyRhythm,
 } from "@/lib/public-site";
-import { query } from "@/server/db";
+import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 
 export const CMS_STATUSES = ["draft", "published"] as const;
 export type CmsStatus = (typeof CMS_STATUSES)[number];
@@ -123,19 +123,9 @@ type CmsMediaAssetRow = {
   updated_at: string;
 };
 
+type CmsMediaAssetRelation = CmsMediaAssetRow | CmsMediaAssetRow[] | null;
+
 type CmsAnnouncementRow = {
-  attachment_alt_text: string | null;
-  attachment_bucket: string | null;
-  attachment_caption: string | null;
-  attachment_created_at: string | null;
-  attachment_id: string | null;
-  attachment_kind: CmsMediaKind | null;
-  attachment_label: string | null;
-  attachment_mime_type: string | null;
-  attachment_public_url: string | null;
-  attachment_size_bytes: number | null;
-  attachment_storage_path: string | null;
-  attachment_updated_at: string | null;
   audience: string | null;
   body_en: string;
   body_vi: string | null;
@@ -150,6 +140,7 @@ type CmsAnnouncementRow = {
   title_en: string;
   title_vi: string | null;
   updated_at: string;
+  attachment: CmsMediaAssetRelation;
 };
 
 type CmsPageRow = {
@@ -192,19 +183,6 @@ type CmsResourceRow = {
   created_at: string;
   description_en: string;
   description_vi: string | null;
-  file_alt_text: string | null;
-  file_bucket: string | null;
-  file_caption: string | null;
-  file_created_at: string | null;
-  file_id: string | null;
-  file_kind: CmsMediaKind | null;
-  file_label: string | null;
-  file_link_url: string | null;
-  file_mime_type: string | null;
-  file_public_url: string | null;
-  file_size_bytes: number | null;
-  file_storage_path: string | null;
-  file_updated_at: string | null;
   id: string;
   is_featured: boolean;
   link_url: string | null;
@@ -214,7 +192,63 @@ type CmsResourceRow = {
   title_en: string;
   title_vi: string | null;
   updated_at: string;
+  file: CmsMediaAssetRelation;
 };
+
+const CMS_MEDIA_SELECT = `
+  id,
+  label,
+  kind,
+  bucket,
+  storage_path,
+  public_url,
+  mime_type,
+  size_bytes,
+  alt_text,
+  caption,
+  created_at,
+  updated_at
+`;
+
+const CMS_ANNOUNCEMENT_SELECT = `
+  id,
+  slug,
+  title_en,
+  title_vi,
+  summary_en,
+  summary_vi,
+  body_en,
+  body_vi,
+  audience,
+  status,
+  is_featured,
+  published_at,
+  created_at,
+  updated_at,
+  attachment:attachment_media_id (
+    ${CMS_MEDIA_SELECT}
+  )
+`;
+
+const CMS_RESOURCE_SELECT = `
+  id,
+  title_en,
+  title_vi,
+  description_en,
+  description_vi,
+  audience,
+  availability_label,
+  link_url,
+  sort_order,
+  status,
+  is_featured,
+  published_at,
+  created_at,
+  updated_at,
+  file:file_media_id (
+    ${CMS_MEDIA_SELECT}
+  )
+`;
 
 type FallbackManagedPage = {
   bodyEn: string;
@@ -308,7 +342,7 @@ function logCmsReadIssue(scope: string, error: unknown) {
 }
 
 async function withCmsFallback<T>(scope: string, fallback: T, callback: () => Promise<T>) {
-  if (!isDatabaseConfigured()) {
+  if (!isCmsConfigured()) {
     return fallback;
   }
 
@@ -317,6 +351,16 @@ async function withCmsFallback<T>(scope: string, fallback: T, callback: () => Pr
   } catch (error) {
     logCmsReadIssue(scope, error);
     return fallback;
+  }
+}
+
+function getCmsClient() {
+  return createSupabaseAdminClient();
+}
+
+function throwIfSupabaseError(scope: string, error: { message: string } | null) {
+  if (error) {
+    throw new Error(`${scope}: ${error.message}`);
   }
 }
 
@@ -337,43 +381,19 @@ function mapMediaAsset(row: CmsMediaAssetRow): CmsMediaAsset {
   };
 }
 
-function mapJoinedMediaAsset(
-  row: {
-    [key: string]: string | number | boolean | null;
-  },
-  prefix: string,
-): CmsMediaAsset | null {
-  const id = row[`${prefix}_id`];
-
-  if (typeof id !== "string") {
+function mapJoinedMediaAsset(row: CmsMediaAssetRelation | undefined): CmsMediaAsset | null {
+  if (!row) {
     return null;
   }
 
-  return {
-    altText: typeof row[`${prefix}_alt_text`] === "string" ? (row[`${prefix}_alt_text`] as string) : null,
-    bucket: String(row[`${prefix}_bucket`]),
-    caption: typeof row[`${prefix}_caption`] === "string" ? (row[`${prefix}_caption`] as string) : null,
-    createdAt: String(row[`${prefix}_created_at`]),
-    id,
-    kind: row[`${prefix}_kind`] as CmsMediaKind,
-    label: String(row[`${prefix}_label`]),
-    mimeType:
-      typeof row[`${prefix}_mime_type`] === "string"
-        ? (row[`${prefix}_mime_type`] as string)
-        : null,
-    publicUrl: String(row[`${prefix}_public_url`]),
-    sizeBytes:
-      typeof row[`${prefix}_size_bytes`] === "number"
-        ? (row[`${prefix}_size_bytes`] as number)
-        : null,
-    storagePath: String(row[`${prefix}_storage_path`]),
-    updatedAt: String(row[`${prefix}_updated_at`]),
-  };
+  const relationRow = Array.isArray(row) ? row[0] : row;
+
+  return relationRow ? mapMediaAsset(relationRow) : null;
 }
 
 function mapAnnouncement(row: CmsAnnouncementRow): CmsAnnouncement {
   return {
-    attachment: mapJoinedMediaAsset(row, "attachment"),
+    attachment: mapJoinedMediaAsset(row.attachment),
     audience: row.audience,
     bodyEn: row.body_en,
     bodyVi: row.body_vi,
@@ -436,7 +456,7 @@ function mapResource(row: CmsResourceRow): CmsResource {
     createdAt: row.created_at,
     descriptionEn: row.description_en,
     descriptionVi: row.description_vi,
-    file: mapJoinedMediaAsset(row, "file"),
+    file: mapJoinedMediaAsset(row.file),
     id: row.id,
     isFeatured: row.is_featured,
     linkUrl: row.link_url,
@@ -561,165 +581,79 @@ function mergeManagedPages(records: CmsPage[]): CmsPageEditorRecord[] {
 
 export async function listMediaAssetsForAdmin() {
   return withCmsFallback("list media assets", [] as CmsMediaAsset[], async () => {
-    const result = await query<CmsMediaAssetRow>(`
-      select
-        id::text as id,
-        label,
-        kind::text as kind,
-        bucket,
-        storage_path,
-        public_url,
-        mime_type,
-        size_bytes,
-        alt_text,
-        caption,
-        created_at::text as created_at,
-        updated_at::text as updated_at
-      from public.cms_media_assets
-      order by updated_at desc
-    `);
+    const supabase = getCmsClient();
+    const { data, error } = await supabase
+      .from("cms_media_assets")
+      .select(CMS_MEDIA_SELECT)
+      .order("updated_at", { ascending: false });
 
-    return result.rows.map(mapMediaAsset);
+    throwIfSupabaseError("list media assets", error);
+
+    return (data ?? []).map((row) => mapMediaAsset(row as CmsMediaAssetRow));
   });
 }
 
 export async function listAnnouncementsForAdmin() {
   return withCmsFallback("list announcements", [] as CmsAnnouncement[], async () => {
-    const result = await query<CmsAnnouncementRow>(`
-      select
-        announcement.id::text as id,
-        announcement.slug,
-        announcement.title_en,
-        announcement.title_vi,
-        announcement.summary_en,
-        announcement.summary_vi,
-        announcement.body_en,
-        announcement.body_vi,
-        announcement.audience,
-        announcement.status::text as status,
-        announcement.is_featured,
-        announcement.published_at::text as published_at,
-        announcement.created_at::text as created_at,
-        announcement.updated_at::text as updated_at,
-        attachment.id::text as attachment_id,
-        attachment.label as attachment_label,
-        attachment.kind::text as attachment_kind,
-        attachment.bucket as attachment_bucket,
-        attachment.storage_path as attachment_storage_path,
-        attachment.public_url as attachment_public_url,
-        attachment.mime_type as attachment_mime_type,
-        attachment.size_bytes as attachment_size_bytes,
-        attachment.alt_text as attachment_alt_text,
-        attachment.caption as attachment_caption,
-        attachment.created_at::text as attachment_created_at,
-        attachment.updated_at::text as attachment_updated_at
-      from public.cms_announcements announcement
-      left join public.cms_media_assets attachment
-        on attachment.id = announcement.attachment_media_id
-      order by announcement.is_featured desc, coalesce(announcement.published_at, announcement.updated_at) desc
-    `);
+    const supabase = getCmsClient();
+    const { data, error } = await supabase
+      .from("cms_announcements")
+      .select(CMS_ANNOUNCEMENT_SELECT)
+      .order("is_featured", { ascending: false })
+      .order("published_at", { ascending: false, nullsFirst: false })
+      .order("updated_at", { ascending: false });
 
-    return result.rows.map(mapAnnouncement);
+    throwIfSupabaseError("list announcements", error);
+
+    return (data ?? []).map((row) => mapAnnouncement(row as CmsAnnouncementRow));
   });
 }
 
 export async function listPagesForAdmin() {
   return withCmsFallback("list managed pages", mergeManagedPages([]), async () => {
-    const result = await query<CmsPageRow>(`
-      select
-        id::text as id,
-        slug,
-        title_en,
-        title_vi,
-        summary_en,
-        summary_vi,
-        body_en,
-        body_vi,
-        status::text as status,
-        published_at::text as published_at,
-        created_at::text as created_at,
-        updated_at::text as updated_at
-      from public.cms_pages
-      order by
-        case slug
-          when 'home' then 0
-          when 'about' then 1
-          when 'contact' then 2
-          else 99
-        end,
-        updated_at desc
-    `);
+    const supabase = getCmsClient();
+    const { data, error } = await supabase
+      .from("cms_pages")
+      .select("id,slug,title_en,title_vi,summary_en,summary_vi,body_en,body_vi,status,published_at,created_at,updated_at")
+      .order("updated_at", { ascending: false });
 
-    return mergeManagedPages(result.rows.map(mapPage));
+    throwIfSupabaseError("list managed pages", error);
+
+    return mergeManagedPages((data ?? []).map((row) => mapPage(row as CmsPageRow)));
   });
 }
 
 export async function listScheduleItemsForAdmin() {
   return withCmsFallback("list schedule items", [] as CmsScheduleItem[], async () => {
-    const result = await query<CmsScheduleItemRow>(`
-      select
-        id::text as id,
-        title_en,
-        title_vi,
-        date_label_en,
-        date_label_vi,
-        note_en,
-        note_vi,
-        audience,
-        action_label,
-        action_href,
-        sort_order,
-        status::text as status,
-        is_featured,
-        published_at::text as published_at,
-        created_at::text as created_at,
-        updated_at::text as updated_at
-      from public.cms_schedule_items
-      order by is_featured desc, sort_order asc, coalesce(published_at, updated_at) asc
-    `);
+    const supabase = getCmsClient();
+    const { data, error } = await supabase
+      .from("cms_schedule_items")
+      .select("id,title_en,title_vi,date_label_en,date_label_vi,note_en,note_vi,audience,action_label,action_href,sort_order,status,is_featured,published_at,created_at,updated_at")
+      .order("is_featured", { ascending: false })
+      .order("sort_order", { ascending: true })
+      .order("published_at", { ascending: true, nullsFirst: false })
+      .order("updated_at", { ascending: true });
 
-    return result.rows.map(mapScheduleItem);
+    throwIfSupabaseError("list schedule items", error);
+
+    return (data ?? []).map((row) => mapScheduleItem(row as CmsScheduleItemRow));
   });
 }
 
 export async function listResourcesForAdmin() {
   return withCmsFallback("list resources", [] as CmsResource[], async () => {
-    const result = await query<CmsResourceRow>(`
-      select
-        resource.id::text as id,
-        resource.title_en,
-        resource.title_vi,
-        resource.description_en,
-        resource.description_vi,
-        resource.audience,
-        resource.availability_label,
-        resource.link_url,
-        resource.sort_order,
-        resource.status::text as status,
-        resource.is_featured,
-        resource.published_at::text as published_at,
-        resource.created_at::text as created_at,
-        resource.updated_at::text as updated_at,
-        file_asset.id::text as file_id,
-        file_asset.label as file_label,
-        file_asset.kind::text as file_kind,
-        file_asset.bucket as file_bucket,
-        file_asset.storage_path as file_storage_path,
-        file_asset.public_url as file_public_url,
-        file_asset.mime_type as file_mime_type,
-        file_asset.size_bytes as file_size_bytes,
-        file_asset.alt_text as file_alt_text,
-        file_asset.caption as file_caption,
-        file_asset.created_at::text as file_created_at,
-        file_asset.updated_at::text as file_updated_at,
-        file_asset.public_url as file_link_url
-      from public.cms_resources resource
-      left join public.cms_media_assets file_asset
-        on file_asset.id = resource.file_media_id
-      order by resource.is_featured desc, resource.sort_order asc, coalesce(resource.published_at, resource.updated_at) desc
-    `);
+    const supabase = getCmsClient();
+    const { data, error } = await supabase
+      .from("cms_resources")
+      .select(CMS_RESOURCE_SELECT)
+      .order("is_featured", { ascending: false })
+      .order("sort_order", { ascending: true })
+      .order("published_at", { ascending: false, nullsFirst: false })
+      .order("updated_at", { ascending: false });
 
-    return result.rows.map(mapResource);
+    throwIfSupabaseError("list resources", error);
+
+    return (data ?? []).map((row) => mapResource(row as CmsResourceRow));
   });
 }
 
@@ -728,55 +662,23 @@ export async function getPublishedAnnouncements(limit?: number) {
     "published announcements",
     [] as CmsAnnouncement[],
     async () => {
-      const values: number[] = [];
-      const limitClause =
-        typeof limit === "number"
-          ? (() => {
-              values.push(limit);
-              return `limit $${values.length}`;
-            })()
-          : "";
+      const supabase = getCmsClient();
+      let request = supabase
+        .from("cms_announcements")
+        .select(CMS_ANNOUNCEMENT_SELECT)
+        .eq("status", "published")
+        .order("is_featured", { ascending: false })
+        .order("published_at", { ascending: false })
+        .order("updated_at", { ascending: false });
 
-      const result = await query<CmsAnnouncementRow>(
-        `
-          select
-            announcement.id::text as id,
-            announcement.slug,
-            announcement.title_en,
-            announcement.title_vi,
-            announcement.summary_en,
-            announcement.summary_vi,
-            announcement.body_en,
-            announcement.body_vi,
-            announcement.audience,
-            announcement.status::text as status,
-            announcement.is_featured,
-            announcement.published_at::text as published_at,
-            announcement.created_at::text as created_at,
-            announcement.updated_at::text as updated_at,
-            attachment.id::text as attachment_id,
-            attachment.label as attachment_label,
-            attachment.kind::text as attachment_kind,
-            attachment.bucket as attachment_bucket,
-            attachment.storage_path as attachment_storage_path,
-            attachment.public_url as attachment_public_url,
-            attachment.mime_type as attachment_mime_type,
-            attachment.size_bytes as attachment_size_bytes,
-            attachment.alt_text as attachment_alt_text,
-            attachment.caption as attachment_caption,
-            attachment.created_at::text as attachment_created_at,
-            attachment.updated_at::text as attachment_updated_at
-          from public.cms_announcements announcement
-          left join public.cms_media_assets attachment
-            on attachment.id = announcement.attachment_media_id
-          where announcement.status = 'published'
-          order by announcement.is_featured desc, announcement.published_at desc, announcement.updated_at desc
-          ${limitClause}
-        `,
-        values,
-      );
+      if (typeof limit === "number") {
+        request = request.limit(limit);
+      }
 
-      return result.rows.map(mapAnnouncement);
+      const { data, error } = await request;
+      throwIfSupabaseError("published announcements", error);
+
+      return (data ?? []).map((row) => mapAnnouncement(row as CmsAnnouncementRow));
     },
   );
 
@@ -788,30 +690,19 @@ export async function getPublishedScheduleItems() {
     "published schedule items",
     [] as CmsScheduleItem[],
     async () => {
-      const result = await query<CmsScheduleItemRow>(`
-        select
-          id::text as id,
-          title_en,
-          title_vi,
-          date_label_en,
-          date_label_vi,
-          note_en,
-          note_vi,
-          audience,
-          action_label,
-          action_href,
-          sort_order,
-          status::text as status,
-          is_featured,
-          published_at::text as published_at,
-          created_at::text as created_at,
-          updated_at::text as updated_at
-        from public.cms_schedule_items
-        where status = 'published'
-        order by is_featured desc, sort_order asc, published_at asc, updated_at asc
-      `);
+      const supabase = getCmsClient();
+      const { data, error } = await supabase
+        .from("cms_schedule_items")
+        .select("id,title_en,title_vi,date_label_en,date_label_vi,note_en,note_vi,audience,action_label,action_href,sort_order,status,is_featured,published_at,created_at,updated_at")
+        .eq("status", "published")
+        .order("is_featured", { ascending: false })
+        .order("sort_order", { ascending: true })
+        .order("published_at", { ascending: true })
+        .order("updated_at", { ascending: true });
 
-      return result.rows.map(mapScheduleItem);
+      throwIfSupabaseError("published schedule items", error);
+
+      return (data ?? []).map((row) => mapScheduleItem(row as CmsScheduleItemRow));
     },
   );
 
@@ -823,43 +714,19 @@ export async function getPublishedResources() {
     "published resources",
     [] as CmsResource[],
     async () => {
-      const result = await query<CmsResourceRow>(`
-        select
-          resource.id::text as id,
-          resource.title_en,
-          resource.title_vi,
-          resource.description_en,
-          resource.description_vi,
-          resource.audience,
-          resource.availability_label,
-          resource.link_url,
-          resource.sort_order,
-          resource.status::text as status,
-          resource.is_featured,
-          resource.published_at::text as published_at,
-          resource.created_at::text as created_at,
-          resource.updated_at::text as updated_at,
-          file_asset.id::text as file_id,
-          file_asset.label as file_label,
-          file_asset.kind::text as file_kind,
-          file_asset.bucket as file_bucket,
-          file_asset.storage_path as file_storage_path,
-          file_asset.public_url as file_public_url,
-          file_asset.mime_type as file_mime_type,
-          file_asset.size_bytes as file_size_bytes,
-          file_asset.alt_text as file_alt_text,
-          file_asset.caption as file_caption,
-          file_asset.created_at::text as file_created_at,
-          file_asset.updated_at::text as file_updated_at,
-          file_asset.public_url as file_link_url
-        from public.cms_resources resource
-        left join public.cms_media_assets file_asset
-          on file_asset.id = resource.file_media_id
-        where resource.status = 'published'
-        order by resource.is_featured desc, resource.sort_order asc, resource.published_at desc, resource.updated_at desc
-      `);
+      const supabase = getCmsClient();
+      const { data, error } = await supabase
+        .from("cms_resources")
+        .select(CMS_RESOURCE_SELECT)
+        .eq("status", "published")
+        .order("is_featured", { ascending: false })
+        .order("sort_order", { ascending: true })
+        .order("published_at", { ascending: false })
+        .order("updated_at", { ascending: false });
 
-      return result.rows.map(mapResource);
+      throwIfSupabaseError("published resources", error);
+
+      return (data ?? []).map((row) => mapResource(row as CmsResourceRow));
     },
   );
 
@@ -871,29 +738,18 @@ export async function getPublishedManagedPage(slug: ManagedPageSlug) {
     `published page ${slug}`,
     null as CmsPage | null,
     async () => {
-      const result = await query<CmsPageRow>(
-        `
-          select
-            id::text as id,
-            slug,
-            title_en,
-            title_vi,
-            summary_en,
-            summary_vi,
-            body_en,
-            body_vi,
-            status::text as status,
-            published_at::text as published_at,
-            created_at::text as created_at,
-            updated_at::text as updated_at
-          from public.cms_pages
-          where slug = $1 and status = 'published'
-          limit 1
-        `,
-        [slug],
-      );
+      const supabase = getCmsClient();
+      const { data, error } = await supabase
+        .from("cms_pages")
+        .select("id,slug,title_en,title_vi,summary_en,summary_vi,body_en,body_vi,status,published_at,created_at,updated_at")
+        .eq("slug", slug)
+        .eq("status", "published")
+        .limit(1)
+        .maybeSingle();
 
-      return result.rows[0] ? mapPage(result.rows[0]) : null;
+      throwIfSupabaseError(`published page ${slug}`, error);
+
+      return data ? mapPage(data as CmsPageRow) : null;
     },
   );
 

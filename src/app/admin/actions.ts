@@ -6,15 +6,27 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { z } from "zod";
 import { MANAGED_PAGE_SLUGS, type ManagedPageSlug } from "@/lib/cms";
-import { isDatabaseConfigured } from "@/lib/env";
+import { isCmsConfigured } from "@/lib/env";
 import { requireMinimumRole } from "@/lib/auth/session";
+import { provisionStaffUser } from "@/lib/auth/staff-user-provisioning";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { getOptionalServerEnv } from "@/lib/env";
 import { getCheckedFormValue } from "@/lib/form-data";
-import { query } from "@/server/db";
 
 const contentStatusSchema = z.enum(["draft", "published"]);
 const managedPageSlugSchema = z.enum(MANAGED_PAGE_SLUGS);
+type ContentStatus = z.infer<typeof contentStatusSchema>;
+type CmsTableWithPublishedAt =
+  | "cms_announcements"
+  | "cms_pages"
+  | "cms_resources"
+  | "cms_schedule_items";
+type UploadedPublicAsset = {
+  bucket: string;
+  id: string;
+  publicUrl: string;
+  storagePath: string;
+};
 
 function redirectWithMessage(path: string, key: "error" | "notice", message: string) {
   redirect(`${path}?${key}=${encodeURIComponent(message)}`);
@@ -88,14 +100,23 @@ async function requireEditorUser(path: string) {
     throw new Error("You do not have permission to manage CMS content.");
   }
 
-  if (!isDatabaseConfigured()) {
-    throw new Error("DATABASE_URL is required before CMS content can be managed.");
+  if (!isCmsConfigured()) {
+    throw new Error(
+      "Supabase URL, publishable key, and service role key are required before CMS content can be managed.",
+    );
   }
+
+  await provisionStaffUser({
+    email: access.currentUser.email,
+    fullName: access.currentUser.name,
+    role: access.currentUser.role,
+    userId: access.currentUser.id,
+  });
 
   return access.currentUser;
 }
 
-function getCurrentTimestampForStatus(status: z.infer<typeof contentStatusSchema>) {
+function getCurrentTimestampForStatus(status: ContentStatus) {
   return status === "published" ? new Date().toISOString() : null;
 }
 
@@ -107,6 +128,59 @@ function getErrorMessage(error: unknown) {
   return "The requested CMS action could not be completed.";
 }
 
+function getCmsClient() {
+  return createSupabaseAdminClient();
+}
+
+function throwIfSupabaseError(
+  error: { message: string } | null,
+  fallbackMessage: string,
+) {
+  if (error) {
+    throw new Error(error.message || fallbackMessage);
+  }
+}
+
+async function getExistingPublishedAt(
+  table: CmsTableWithPublishedAt,
+  match: { column: "id" | "slug"; value: string },
+) {
+  const supabase = getCmsClient();
+  const { data, error } = await supabase
+    .from(table)
+    .select("published_at")
+    .eq(match.column, match.value)
+    .limit(1)
+    .maybeSingle();
+
+  throwIfSupabaseError(error, `The existing ${table} record could not be loaded.`);
+
+  return typeof data?.published_at === "string" ? data.published_at : null;
+}
+
+async function cleanupUploadedPublicAsset(
+  asset: UploadedPublicAsset,
+  options?: { throwOnError?: boolean },
+) {
+  const supabase = getCmsClient();
+  const { error: deleteMetadataError } = await supabase
+    .from("cms_media_assets")
+    .delete()
+    .eq("id", asset.id);
+  const { error: removeStorageError } = await supabase.storage
+    .from(asset.bucket)
+    .remove([asset.storagePath]);
+  const cleanupError = deleteMetadataError ?? removeStorageError;
+
+  if (cleanupError && options?.throwOnError) {
+    throw new Error(cleanupError.message || "The uploaded asset could not be cleaned up.");
+  }
+
+  if (cleanupError && !options?.throwOnError && process.env.NODE_ENV !== "test") {
+    console.warn("[cms] uploaded asset cleanup failed", cleanupError);
+  }
+}
+
 async function uploadPublicAsset(options: {
   altText?: string | null;
   caption?: string | null;
@@ -116,7 +190,7 @@ async function uploadPublicAsset(options: {
   userId: string;
 }) {
   const { SUPABASE_PUBLIC_MEDIA_BUCKET } = getOptionalServerEnv();
-  const supabase = createSupabaseAdminClient();
+  const supabase = getCmsClient();
   const extension = getFileExtension(options.file);
   const baseName = sanitizeStorageSegment(options.label || options.file.name || "asset");
   const storagePath = `${sanitizeStorageSegment(options.folder)}/${baseName}-${randomUUID()}.${extension}`;
@@ -135,40 +209,33 @@ async function uploadPublicAsset(options: {
   const publicUrlResult = supabase.storage.from(SUPABASE_PUBLIC_MEDIA_BUCKET).getPublicUrl(storagePath);
   const kind = options.file.type.startsWith("image/") ? "image" : "file";
 
-  const insertResult = await query<{ id: string; public_url: string }>(
-    `
-      insert into public.cms_media_assets (
-        label,
-        kind,
-        bucket,
-        storage_path,
-        public_url,
-        mime_type,
-        size_bytes,
-        alt_text,
-        caption,
-        created_by
-      )
-      values ($1, $2::public.cms_media_kind, $3, $4, $5, $6, $7, $8, $9, $10)
-      returning id::text as id, public_url
-    `,
-    [
-      options.label,
+  const { data, error } = await supabase
+    .from("cms_media_assets")
+    .insert({
+      alt_text: options.altText ?? null,
+      bucket: SUPABASE_PUBLIC_MEDIA_BUCKET,
+      caption: options.caption ?? null,
+      created_by: options.userId,
       kind,
-      SUPABASE_PUBLIC_MEDIA_BUCKET,
-      storagePath,
-      publicUrlResult.data.publicUrl,
-      options.file.type || null,
-      options.file.size,
-      options.altText ?? null,
-      options.caption ?? null,
-      options.userId,
-    ],
-  );
+      label: options.label,
+      mime_type: options.file.type || null,
+      public_url: publicUrlResult.data.publicUrl,
+      size_bytes: options.file.size,
+      storage_path: storagePath,
+    })
+    .select("id, public_url")
+    .single();
+
+  if (error) {
+    await supabase.storage.from(SUPABASE_PUBLIC_MEDIA_BUCKET).remove([storagePath]);
+    throw new Error(error.message || "The uploaded file metadata could not be saved.");
+  }
 
   return {
-    id: insertResult.rows[0].id,
-    publicUrl: insertResult.rows[0].public_url,
+    bucket: SUPABASE_PUBLIC_MEDIA_BUCKET,
+    id: data.id,
+    publicUrl: data.public_url,
+    storagePath,
   };
 }
 
@@ -198,6 +265,7 @@ export async function saveAnnouncementAction(formData: FormData) {
   const redirectPath = "/admin/announcements";
 
   try {
+    const supabase = getCmsClient();
     const currentUser = await requireEditorUser(redirectPath);
     const id = getTrimmedString(formData, "id");
     const titleEn = getTrimmedString(formData, "titleEn");
@@ -215,6 +283,7 @@ export async function saveAnnouncementAction(formData: FormData) {
 
     let attachmentId = getOptionalString(formData, "existingAttachmentId");
     const attachmentFile = getUploadedFile(formData, "attachmentFile");
+    let uploadedAttachment: UploadedPublicAsset | null = null;
 
     if (attachmentFile) {
       const attachment = await uploadPublicAsset({
@@ -226,88 +295,53 @@ export async function saveAnnouncementAction(formData: FormData) {
         userId: currentUser.id,
       });
 
+      uploadedAttachment = attachment;
       attachmentId = attachment.id;
     }
 
-    const values = [
+    const payload = {
+      attachment_media_id: attachmentId,
+      audience: getOptionalString(formData, "audience"),
+      body_en: getTrimmedString(formData, "bodyEn"),
+      body_vi: getOptionalString(formData, "bodyVi"),
+      is_featured: getChecked(formData, "isFeatured"),
+      published_at: id
+        ? status === "published"
+          ? (await getExistingPublishedAt("cms_announcements", { column: "id", value: id })) ??
+            getCurrentTimestampForStatus(status)
+          : null
+        : getCurrentTimestampForStatus(status),
       slug,
-      titleEn,
-      getOptionalString(formData, "titleVi"),
-      getTrimmedString(formData, "summaryEn"),
-      getOptionalString(formData, "summaryVi"),
-      getTrimmedString(formData, "bodyEn"),
-      getOptionalString(formData, "bodyVi"),
-      getOptionalString(formData, "audience"),
       status,
-      getChecked(formData, "isFeatured"),
-      attachmentId,
-      getCurrentTimestampForStatus(status),
-      currentUser.id,
-    ];
+      summary_en: getTrimmedString(formData, "summaryEn"),
+      summary_vi: getOptionalString(formData, "summaryVi"),
+      title_en: titleEn,
+      title_vi: getOptionalString(formData, "titleVi"),
+      updated_by: currentUser.id,
+    };
 
-    if (id) {
-      await query(
-        `
-          update public.cms_announcements
-          set
-            slug = $2,
-            title_en = $3,
-            title_vi = $4,
-            summary_en = $5,
-            summary_vi = $6,
-            body_en = $7,
-            body_vi = $8,
-            audience = $9,
-            status = $10::public.cms_status,
-            is_featured = $11,
-            attachment_media_id = $12::uuid,
-            published_at = case
-              when $10::public.cms_status = 'published' then coalesce(published_at, $13::timestamptz)
-              else null
-            end,
-            updated_by = $14
-          where id = $1::uuid
-        `,
-        [id, ...values],
-      );
-    } else {
-      await query(
-        `
-          insert into public.cms_announcements (
-            slug,
-            title_en,
-            title_vi,
-            summary_en,
-            summary_vi,
-            body_en,
-            body_vi,
-            audience,
-            status,
-            is_featured,
-            attachment_media_id,
-            published_at,
-            created_by,
-            updated_by
-          )
-          values (
-            $1,
-            $2,
-            $3,
-            $4,
-            $5,
-            $6,
-            $7,
-            $8,
-            $9::public.cms_status,
-            $10,
-            $11::uuid,
-            $12::timestamptz,
-            $13,
-            $13
-          )
-        `,
-        values,
-      );
+    try {
+      if (id) {
+        const { error } = await supabase
+          .from("cms_announcements")
+          .update(payload)
+          .eq("id", id);
+
+        throwIfSupabaseError(error, "The announcement could not be updated.");
+      } else {
+        const { error } = await supabase.from("cms_announcements").insert({
+          ...payload,
+          created_by: currentUser.id,
+        });
+
+        throwIfSupabaseError(error, "The announcement could not be created.");
+      }
+    } catch (error) {
+      if (uploadedAttachment) {
+        await cleanupUploadedPublicAsset(uploadedAttachment);
+      }
+
+      throw error;
     }
 
     revalidateCmsPaths();
@@ -322,6 +356,7 @@ export async function deleteAnnouncementAction(formData: FormData) {
   const redirectPath = "/admin/announcements";
 
   try {
+    const supabase = getCmsClient();
     await requireEditorUser(redirectPath);
     const id = getTrimmedString(formData, "id");
 
@@ -329,7 +364,8 @@ export async function deleteAnnouncementAction(formData: FormData) {
       throw new Error("Announcement id is required.");
     }
 
-    await query("delete from public.cms_announcements where id = $1::uuid", [id]);
+    const { error } = await supabase.from("cms_announcements").delete().eq("id", id);
+    throwIfSupabaseError(error, "The announcement could not be deleted.");
     revalidateCmsPaths();
   } catch (error) {
     redirectWithMessage(redirectPath, "error", getErrorMessage(error));
@@ -342,6 +378,7 @@ export async function saveManagedPageAction(formData: FormData) {
   const redirectPath = "/admin/pages";
 
   try {
+    const supabase = getCmsClient();
     const currentUser = await requireEditorUser(redirectPath);
     const slug = managedPageSlugSchema.parse(getTrimmedString(formData, "slug")) as ManagedPageSlug;
     const titleEn = getTrimmedString(formData, "titleEn");
@@ -351,51 +388,41 @@ export async function saveManagedPageAction(formData: FormData) {
     }
 
     const status = contentStatusSchema.parse(getTrimmedString(formData, "status") || "draft");
+    const existingPublishedAt =
+      status === "published"
+        ? (await getExistingPublishedAt("cms_pages", { column: "slug", value: slug })) ??
+          getCurrentTimestampForStatus(status)
+        : null;
+    const payload = {
+      body_en: getTrimmedString(formData, "bodyEn"),
+      body_vi: getOptionalString(formData, "bodyVi"),
+      published_at: existingPublishedAt,
+      slug,
+      status,
+      summary_en: getTrimmedString(formData, "summaryEn"),
+      summary_vi: getOptionalString(formData, "summaryVi"),
+      title_en: titleEn,
+      title_vi: getOptionalString(formData, "titleVi"),
+      updated_by: currentUser.id,
+    };
+    const { data: existingPage, error: existingPageError } = await supabase
+      .from("cms_pages")
+      .select("id")
+      .eq("slug", slug)
+      .limit(1)
+      .maybeSingle();
+    throwIfSupabaseError(existingPageError, "The managed page could not be loaded.");
 
-    await query(
-      `
-        insert into public.cms_pages (
-          slug,
-          title_en,
-          title_vi,
-          summary_en,
-          summary_vi,
-          body_en,
-          body_vi,
-          status,
-          published_at,
-          created_by,
-          updated_by
-        )
-        values ($1, $2, $3, $4, $5, $6, $7, $8::public.cms_status, $9::timestamptz, $10, $10)
-        on conflict (slug) do update
-        set
-          title_en = excluded.title_en,
-          title_vi = excluded.title_vi,
-          summary_en = excluded.summary_en,
-          summary_vi = excluded.summary_vi,
-          body_en = excluded.body_en,
-          body_vi = excluded.body_vi,
-          status = excluded.status,
-          published_at = case
-            when excluded.status = 'published' then coalesce(public.cms_pages.published_at, excluded.published_at)
-            else null
-          end,
-          updated_by = excluded.updated_by
-      `,
-      [
-        slug,
-        titleEn,
-        getOptionalString(formData, "titleVi"),
-        getTrimmedString(formData, "summaryEn"),
-        getOptionalString(formData, "summaryVi"),
-        getTrimmedString(formData, "bodyEn"),
-        getOptionalString(formData, "bodyVi"),
-        status,
-        getCurrentTimestampForStatus(status),
-        currentUser.id,
-      ],
-    );
+    if (existingPage) {
+      const { error } = await supabase.from("cms_pages").update(payload).eq("id", existingPage.id);
+      throwIfSupabaseError(error, "The managed page could not be updated.");
+    } else {
+      const { error } = await supabase.from("cms_pages").insert({
+        ...payload,
+        created_by: currentUser.id,
+      });
+      throwIfSupabaseError(error, "The managed page could not be created.");
+    }
 
     revalidateCmsPaths();
   } catch (error) {
@@ -409,6 +436,7 @@ export async function saveScheduleItemAction(formData: FormData) {
   const redirectPath = "/admin/schedule";
 
   try {
+    const supabase = getCmsClient();
     const currentUser = await requireEditorUser(redirectPath);
     const id = getTrimmedString(formData, "id");
     const titleEn = getTrimmedString(formData, "titleEn");
@@ -418,89 +446,37 @@ export async function saveScheduleItemAction(formData: FormData) {
     }
 
     const status = contentStatusSchema.parse(getTrimmedString(formData, "status") || "draft");
-    const values = [
-      titleEn,
-      getOptionalString(formData, "titleVi"),
-      getTrimmedString(formData, "dateLabelEn"),
-      getOptionalString(formData, "dateLabelVi"),
-      getTrimmedString(formData, "noteEn"),
-      getOptionalString(formData, "noteVi"),
-      getOptionalString(formData, "audience"),
-      getOptionalString(formData, "actionLabel"),
-      getOptionalString(formData, "actionHref"),
-      getSortOrder(formData, "sortOrder"),
+    const payload = {
+      action_href: getOptionalString(formData, "actionHref"),
+      action_label: getOptionalString(formData, "actionLabel"),
+      audience: getOptionalString(formData, "audience"),
+      date_label_en: getTrimmedString(formData, "dateLabelEn"),
+      date_label_vi: getOptionalString(formData, "dateLabelVi"),
+      is_featured: getChecked(formData, "isFeatured"),
+      note_en: getTrimmedString(formData, "noteEn"),
+      note_vi: getOptionalString(formData, "noteVi"),
+      published_at: id
+        ? status === "published"
+          ? (await getExistingPublishedAt("cms_schedule_items", { column: "id", value: id })) ??
+            getCurrentTimestampForStatus(status)
+          : null
+        : getCurrentTimestampForStatus(status),
+      sort_order: getSortOrder(formData, "sortOrder"),
       status,
-      getChecked(formData, "isFeatured"),
-      getCurrentTimestampForStatus(status),
-      currentUser.id,
-    ];
+      title_en: titleEn,
+      title_vi: getOptionalString(formData, "titleVi"),
+      updated_by: currentUser.id,
+    };
 
     if (id) {
-      await query(
-        `
-          update public.cms_schedule_items
-          set
-            title_en = $2,
-            title_vi = $3,
-            date_label_en = $4,
-            date_label_vi = $5,
-            note_en = $6,
-            note_vi = $7,
-            audience = $8,
-            action_label = $9,
-            action_href = $10,
-            sort_order = $11,
-            status = $12::public.cms_status,
-            is_featured = $13,
-            published_at = case
-              when $12::public.cms_status = 'published' then coalesce(published_at, $14::timestamptz)
-              else null
-            end,
-            updated_by = $15
-          where id = $1::uuid
-        `,
-        [id, ...values],
-      );
+      const { error } = await supabase.from("cms_schedule_items").update(payload).eq("id", id);
+      throwIfSupabaseError(error, "The schedule item could not be updated.");
     } else {
-      await query(
-        `
-          insert into public.cms_schedule_items (
-            title_en,
-            title_vi,
-            date_label_en,
-            date_label_vi,
-            note_en,
-            note_vi,
-            audience,
-            action_label,
-            action_href,
-            sort_order,
-            status,
-            is_featured,
-            published_at,
-            created_by,
-            updated_by
-          )
-          values (
-            $1,
-            $2,
-            $3,
-            $4,
-            $5,
-            $6,
-            $7,
-            $8,
-            $9,
-            $10,
-            $11::public.cms_status,
-            $12,
-            $13::timestamptz,
-            $14,
-            $14
-          )
-        `,
-        values,
-      );
+      const { error } = await supabase.from("cms_schedule_items").insert({
+        ...payload,
+        created_by: currentUser.id,
+      });
+      throwIfSupabaseError(error, "The schedule item could not be created.");
     }
 
     revalidateCmsPaths();
@@ -515,6 +491,7 @@ export async function deleteScheduleItemAction(formData: FormData) {
   const redirectPath = "/admin/schedule";
 
   try {
+    const supabase = getCmsClient();
     await requireEditorUser(redirectPath);
     const id = getTrimmedString(formData, "id");
 
@@ -522,7 +499,8 @@ export async function deleteScheduleItemAction(formData: FormData) {
       throw new Error("Schedule item id is required.");
     }
 
-    await query("delete from public.cms_schedule_items where id = $1::uuid", [id]);
+    const { error } = await supabase.from("cms_schedule_items").delete().eq("id", id);
+    throwIfSupabaseError(error, "The schedule item could not be deleted.");
     revalidateCmsPaths();
   } catch (error) {
     redirectWithMessage(redirectPath, "error", getErrorMessage(error));
@@ -535,6 +513,7 @@ export async function saveResourceAction(formData: FormData) {
   const redirectPath = "/admin/resources";
 
   try {
+    const supabase = getCmsClient();
     const currentUser = await requireEditorUser(redirectPath);
     const id = getTrimmedString(formData, "id");
     const titleEn = getTrimmedString(formData, "titleEn");
@@ -546,6 +525,7 @@ export async function saveResourceAction(formData: FormData) {
     const status = contentStatusSchema.parse(getTrimmedString(formData, "status") || "draft");
     let fileMediaId = getOptionalString(formData, "existingFileMediaId");
     const resourceFile = getUploadedFile(formData, "resourceFile");
+    let uploadedFileAsset: UploadedPublicAsset | null = null;
 
     if (resourceFile) {
       const uploadedFile = await uploadPublicAsset({
@@ -557,88 +537,48 @@ export async function saveResourceAction(formData: FormData) {
         userId: currentUser.id,
       });
 
+      uploadedFileAsset = uploadedFile;
       fileMediaId = uploadedFile.id;
     }
 
-    const values = [
-      titleEn,
-      getOptionalString(formData, "titleVi"),
-      getTrimmedString(formData, "descriptionEn"),
-      getOptionalString(formData, "descriptionVi"),
-      getOptionalString(formData, "audience"),
-      getOptionalString(formData, "availabilityLabel"),
-      getOptionalString(formData, "linkUrl"),
-      fileMediaId,
-      getSortOrder(formData, "sortOrder"),
+    const payload = {
+      audience: getOptionalString(formData, "audience"),
+      availability_label: getOptionalString(formData, "availabilityLabel"),
+      description_en: getTrimmedString(formData, "descriptionEn"),
+      description_vi: getOptionalString(formData, "descriptionVi"),
+      file_media_id: fileMediaId,
+      is_featured: getChecked(formData, "isFeatured"),
+      link_url: getOptionalString(formData, "linkUrl"),
+      published_at: id
+        ? status === "published"
+          ? (await getExistingPublishedAt("cms_resources", { column: "id", value: id })) ??
+            getCurrentTimestampForStatus(status)
+          : null
+        : getCurrentTimestampForStatus(status),
+      sort_order: getSortOrder(formData, "sortOrder"),
       status,
-      getChecked(formData, "isFeatured"),
-      getCurrentTimestampForStatus(status),
-      currentUser.id,
-    ];
+      title_en: titleEn,
+      title_vi: getOptionalString(formData, "titleVi"),
+      updated_by: currentUser.id,
+    };
 
-    if (id) {
-      await query(
-        `
-          update public.cms_resources
-          set
-            title_en = $2,
-            title_vi = $3,
-            description_en = $4,
-            description_vi = $5,
-            audience = $6,
-            availability_label = $7,
-            link_url = $8,
-            file_media_id = $9::uuid,
-            sort_order = $10,
-            status = $11::public.cms_status,
-            is_featured = $12,
-            published_at = case
-              when $11::public.cms_status = 'published' then coalesce(published_at, $13::timestamptz)
-              else null
-            end,
-            updated_by = $14
-          where id = $1::uuid
-        `,
-        [id, ...values],
-      );
-    } else {
-      await query(
-        `
-          insert into public.cms_resources (
-            title_en,
-            title_vi,
-            description_en,
-            description_vi,
-            audience,
-            availability_label,
-            link_url,
-            file_media_id,
-            sort_order,
-            status,
-            is_featured,
-            published_at,
-            created_by,
-            updated_by
-          )
-          values (
-            $1,
-            $2,
-            $3,
-            $4,
-            $5,
-            $6,
-            $7,
-            $8::uuid,
-            $9,
-            $10::public.cms_status,
-            $11,
-            $12::timestamptz,
-            $13,
-            $13
-          )
-        `,
-        values,
-      );
+    try {
+      if (id) {
+        const { error } = await supabase.from("cms_resources").update(payload).eq("id", id);
+        throwIfSupabaseError(error, "The resource could not be updated.");
+      } else {
+        const { error } = await supabase.from("cms_resources").insert({
+          ...payload,
+          created_by: currentUser.id,
+        });
+        throwIfSupabaseError(error, "The resource could not be created.");
+      }
+    } catch (error) {
+      if (uploadedFileAsset) {
+        await cleanupUploadedPublicAsset(uploadedFileAsset);
+      }
+
+      throw error;
     }
 
     revalidateCmsPaths();
@@ -653,6 +593,7 @@ export async function deleteResourceAction(formData: FormData) {
   const redirectPath = "/admin/resources";
 
   try {
+    const supabase = getCmsClient();
     await requireEditorUser(redirectPath);
     const id = getTrimmedString(formData, "id");
 
@@ -660,7 +601,8 @@ export async function deleteResourceAction(formData: FormData) {
       throw new Error("Resource id is required.");
     }
 
-    await query("delete from public.cms_resources where id = $1::uuid", [id]);
+    const { error } = await supabase.from("cms_resources").delete().eq("id", id);
+    throwIfSupabaseError(error, "The resource could not be deleted.");
     revalidateCmsPaths();
   } catch (error) {
     redirectWithMessage(redirectPath, "error", getErrorMessage(error));
@@ -701,6 +643,7 @@ export async function updateMediaAssetAction(formData: FormData) {
   const redirectPath = "/admin/media";
 
   try {
+    const supabase = getCmsClient();
     await requireEditorUser(redirectPath);
     const id = getTrimmedString(formData, "id");
 
@@ -714,17 +657,15 @@ export async function updateMediaAssetAction(formData: FormData) {
       throw new Error("Media asset label is required.");
     }
 
-    await query(
-      `
-        update public.cms_media_assets
-        set
-          label = $2,
-          alt_text = $3,
-          caption = $4
-        where id = $1::uuid
-      `,
-      [id, label, getOptionalString(formData, "altText"), getOptionalString(formData, "caption")],
-    );
+    const { error } = await supabase
+      .from("cms_media_assets")
+      .update({
+        alt_text: getOptionalString(formData, "altText"),
+        caption: getOptionalString(formData, "caption"),
+        label,
+      })
+      .eq("id", id);
+    throwIfSupabaseError(error, "The media asset could not be updated.");
 
     revalidateCmsPaths();
   } catch (error) {
@@ -738,6 +679,7 @@ export async function deleteMediaAssetAction(formData: FormData) {
   const redirectPath = "/admin/media";
 
   try {
+    const supabase = getCmsClient();
     await requireEditorUser(redirectPath);
     const id = getTrimmedString(formData, "id");
 
@@ -745,23 +687,27 @@ export async function deleteMediaAssetAction(formData: FormData) {
       throw new Error("Media asset id is required.");
     }
 
-    const assetLookup = await query<{ bucket: string; storage_path: string }>(
-      `
-        select bucket, storage_path
-        from public.cms_media_assets
-        where id = $1::uuid
-        limit 1
-      `,
-      [id],
-    );
-
-    await query("delete from public.cms_media_assets where id = $1::uuid", [id]);
-
-    const asset = assetLookup.rows[0];
+    const { data: asset, error: lookupError } = await supabase
+      .from("cms_media_assets")
+      .select("id,bucket,storage_path,public_url")
+      .eq("id", id)
+      .limit(1)
+      .maybeSingle();
+    throwIfSupabaseError(lookupError, "The media asset could not be loaded.");
 
     if (asset) {
-      const supabase = createSupabaseAdminClient();
-      await supabase.storage.from(asset.bucket).remove([asset.storage_path]);
+      await cleanupUploadedPublicAsset(
+        {
+          bucket: asset.bucket,
+          id: asset.id,
+          publicUrl: asset.public_url,
+          storagePath: asset.storage_path,
+        },
+        { throwOnError: true },
+      );
+    } else {
+      const { error } = await supabase.from("cms_media_assets").delete().eq("id", id);
+      throwIfSupabaseError(error, "The media asset could not be deleted.");
     }
 
     revalidateCmsPaths();
