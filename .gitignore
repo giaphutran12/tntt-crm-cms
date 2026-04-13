@@ -1,0 +1,16 @@
+.DS_Store
+.omx/
+sample-reg/
+node_modules/
+.next/
+out/
+build/
+coverage/
+*.tsbuildinfo
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+!.env.example
+/supabase/.temp

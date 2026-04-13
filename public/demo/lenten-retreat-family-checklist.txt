@@ -1,0 +1,14 @@
+TNTT Surrey CRM/CMS Demo
+Lenten Retreat Family Checklist
+
+This is a representative local-development attachment.
+It demonstrates a public event checklist linked from both the announcements archive and the forms/resources page.
+
+Typical checklist items:
+- retreat permission form submitted
+- emergency contact confirmed
+- allergy or medication notes reviewed
+- arrival and pickup times shared with guardians
+- payment or deposit status confirmed
+
+Replace this file with the real chapter checklist before launch.
