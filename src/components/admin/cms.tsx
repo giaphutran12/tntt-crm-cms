@@ -5,6 +5,7 @@ import type {
   TextareaHTMLAttributes,
 } from "react";
 import Link from "next/link";
+import { CmsFileInput } from "@/components/admin/cms-file-input";
 import {
   getCmsDashboardSummary,
   getFallbackManagedPage,
@@ -21,7 +22,7 @@ import {
   type CmsResource,
   type CmsScheduleItem,
 } from "@/lib/cms";
-import { getOptionalServerEnv, isDatabaseConfigured } from "@/lib/env";
+import { getOptionalServerEnv, isCmsConfigured } from "@/lib/env";
 import {
   deleteAnnouncementAction,
   deleteMediaAssetAction,
@@ -65,17 +66,18 @@ function NoticeBanner({ error, notice }: SectionSearchParams) {
   );
 }
 
-function DatabaseRequiredPanel() {
+function CmsConfigRequiredPanel() {
   return (
     <section className="panel rounded-[2rem] px-6 py-8 md:px-8">
       <p className="eyebrow mb-3">CMS unavailable</p>
       <h2 className="display-title text-3xl font-semibold text-[var(--forest)]">
-        The content workflow needs a live Postgres connection.
+        The content workflow needs the hosted Supabase CMS environment.
       </h2>
       <p className="muted mt-4 max-w-3xl text-base md:text-lg">
-        The admin screens are rendered, but `DATABASE_URL` is missing in this environment,
-        so content records cannot be saved yet. Add the database connection, run the checked-in
-        migrations, then come back to publish announcements, schedule items, resources, and pages.
+        The admin screens are rendered, but the Supabase URL, publishable key, or service role key
+        is missing in this environment, so content records cannot be saved yet. Point auth, storage,
+        and CMS writes at the same Supabase project, then come back to publish announcements,
+        schedule items, resources, and pages.
       </p>
     </section>
   );
@@ -174,8 +176,8 @@ function EmptyState({
 }
 
 export async function CmsDashboardPanel() {
-  if (!isDatabaseConfigured()) {
-    return <DatabaseRequiredPanel />;
+  if (!isCmsConfigured()) {
+    return <CmsConfigRequiredPanel />;
   }
 
   const snapshot = await getCmsDashboardSummary();
@@ -382,7 +384,7 @@ function AnnouncementForm({
         <div>
           <p className="font-semibold text-[var(--foreground)]">Optional public attachment</p>
           <p className="mt-1 text-sm text-[var(--muted)]">
-            Upload a retreat PDF or other public document directly here. New uploads will replace the current linked file for this announcement.
+            Upload a public image or document directly here. GIFs are supported. New uploads will replace the current linked file for this announcement.
           </p>
         </div>
         <div className="grid gap-4 lg:grid-cols-[1fr_1fr]">
@@ -390,7 +392,7 @@ function AnnouncementForm({
             <TextInput defaultValue={announcement?.attachment?.label ?? ""} name="attachmentLabel" />
           </Field>
           <Field label="Attachment file">
-            <TextInput accept=".pdf,image/*" name="attachmentFile" type="file" />
+            <CmsFileInput name="attachmentFile" />
           </Field>
         </div>
         <div className="grid gap-4 lg:grid-cols-2">
@@ -593,7 +595,7 @@ function ResourceForm({ resource }: { resource?: CmsResource }) {
             <TextInput defaultValue={resource?.file?.label ?? ""} name="fileLabel" />
           </Field>
           <Field label="Upload file">
-            <TextInput accept=".pdf,image/*" name="resourceFile" type="file" />
+            <CmsFileInput name="resourceFile" />
           </Field>
         </div>
         <Field label="File caption">
@@ -662,7 +664,7 @@ function MediaAssetForm({ asset }: { asset?: CmsMediaAsset }) {
       </div>
       <div className="grid gap-4 lg:grid-cols-2">
         <Field label="File">
-          <TextInput name="file" required type="file" />
+          <CmsFileInput name="file" required />
         </Field>
         <Field label="Alt text">
           <TextInput name="altText" />
@@ -687,11 +689,11 @@ export async function CmsSectionContent({
   searchParams: SectionSearchParams;
   section: string;
 }) {
-  if (!isDatabaseConfigured()) {
+  if (!isCmsConfigured()) {
     return (
       <section className="space-y-6">
         <NoticeBanner {...searchParams} />
-        <DatabaseRequiredPanel />
+        <CmsConfigRequiredPanel />
       </section>
     );
   }
